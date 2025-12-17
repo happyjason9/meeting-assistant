@@ -1,0 +1,27 @@
+{
+    "manifest_version": 3,
+    "name": "會議室語音助理 (基礎版)",
+    "version": "1.0",
+    "permissions": [
+        "activeTab",
+        "scripting",
+        "downloads"
+    ],
+    "host_permissions": [
+        "<all_urls>"
+    ],
+    "background": {
+        "service_worker": "background.js"
+    },
+    "content_scripts": [
+        {
+            "matches": [
+                "<all_urls>"
+            ],
+            "js": [
+                "pinyin-pro.js",
+                "content.js"
+            ]
+        }
+    ]
+}
