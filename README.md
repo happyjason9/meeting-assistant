@@ -34,8 +34,10 @@
     <div align="center">
         <img src=".github/image/meeting_folder.png" width="300" alt="圖片說明">
     </div>
+    <br>
 2.  **開啟擴充功能管理頁面**：
     - 在 Chrome 瀏覽器網址列輸入 `chrome://extensions/`。
+    <br>
 3.  **開啟開發人員模式**：
     - 點擊右上角的「開發人員模式 (Developer mode)」開關。
     <div align="center">
@@ -48,11 +50,13 @@
     <div align="center">
         <img src=".github/image/Load_unpacked.png" width="300" alt="圖片說明">
     </div>
+    <br>
 
     - 選擇本專案的資料夾。
     <div align="center">
         <img src=".github/image/Select_folder.png" width="500" alt="圖片說明">
     </div>
+    <br>
 
     - 在All Extensions會看到會議室語音助理 (基礎版) 1.0，請打開它右下角的開關。
     <div align="center">
@@ -65,6 +69,7 @@
     <div align="center">
         <img src=".github/image/dont_scroll.png" width="800" alt="圖片說明">
     </div>
+    <br><br>
     
     開啟右上角的拼圖圖示：
     
