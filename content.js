@@ -1,4 +1,6 @@
+// ==========================================
 // 1. 介面樣式 (CSS)
+// ==========================================
 const style = document.createElement('style');
 style.textContent = `
     @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700&display=swap');
@@ -26,19 +28,22 @@ style.textContent = `
     #assistant-overlay:hover { background: rgba(0, 0, 0, 0.85); }
     
     .mic-circle {
+        position: relative;
         width: 60px; height: 60px; border-radius: 50%; 
         background-color: rgba(255, 255, 255, 0.1); 
         display: flex; align-items: center; justify-content: center; margin-bottom: 15px;
-        transition: all 0.3s ease; border: 3px solid transparent;
+        transition: all 0.3s ease; 
+        border: 3px solid transparent; 
     }
     
     #assistant-overlay.active-mode .mic-circle { width: 80px; height: 80px; margin-bottom: 20px; }
 
-    .mic-circle.listening { border-color: #28a745; box-shadow: 0 0 15px rgba(40, 167, 69, 0.6); }
-    .mic-circle.speaking { border-color: #ffc107; box-shadow: 0 0 15px rgba(255, 193, 7, 0.7); }
+    /* 狀態光暈 */
+    .mic-circle.listening { border-color: transparent; box-shadow: 0 0 15px rgba(40, 167, 69, 0.6); }
+    .mic-circle.speaking { border-color: transparent; box-shadow: 0 0 15px rgba(255, 193, 7, 0.7); }
     .mic-circle.searching { border-color: #007bff; box-shadow: 0 0 15px rgba(0, 123, 255, 0.7); animation: pulse-blue 1.5s infinite; }
     
-    .mic-icon svg { width: 32px; height: 32px; fill: #eee; transition: fill 0.3s; }
+    .mic-icon svg { width: 32px; height: 32px; fill: #eee; transition: fill 0.3s; z-index: 2; }
     #assistant-overlay.active-mode .mic-icon svg { width: 40px; height: 40px; }
 
     .mic-circle.listening .mic-icon svg { fill: #28a745; }
@@ -55,10 +60,45 @@ style.textContent = `
     .meeting-even { background-color: #f2f2f2 !important; transition: background-color 0.3s; }
     .meeting-hidden { display: none !important; }
 
+    /* --- 新增：螢光筆樣式 --- */
+    mark.highlight-match {
+        background-color: #ffeb3b;
+        color: #000;
+        font-weight: bold;
+        padding: 0 2px;
+        border-radius: 2px;
+        box-shadow: 0 0 4px #ffeb3b;
+    }
+
     @keyframes pulse-blue {
         0% { box-shadow: 0 0 0 0 rgba(0, 123, 255, 0.7); }
         70% { box-shadow: 0 0 0 15px rgba(0, 123, 255, 0); }
         100% { box-shadow: 0 0 0 0 rgba(0, 123, 255, 0); }
+    }
+
+    /* --- 倒數圓環 --- */
+    .progress-ring {
+        position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+        transform: rotate(-90deg); pointer-events: none; display: none; z-index: 1;
+    }
+
+    .mic-circle.listening .progress-ring,
+    .mic-circle.speaking .progress-ring { display: block; }
+
+    .progress-ring__circle {
+        fill: transparent; stroke-width: 4; stroke-linecap: round; transform-origin: center;
+    }
+
+    /* 綠燈：有 .counting 才跑動畫 */
+    .mic-circle.listening .progress-ring__circle { stroke: #28a745; stroke-dasharray: 239; stroke-dashoffset: 0; }
+    .mic-circle.listening.counting .progress-ring__circle { animation: countdown 10s linear forwards; }
+
+    /* 黃燈：一直跑動畫 */
+    .mic-circle.speaking .progress-ring__circle { stroke: #ffc107; stroke-dasharray: 239; stroke-dashoffset: 0; animation: countdown 20s linear forwards; }
+
+    @keyframes countdown {
+        from { stroke-dashoffset: 0; }
+        to { stroke-dashoffset: 239; }
     }
 `;
 document.head.appendChild(style);
@@ -67,6 +107,9 @@ const overlay = document.createElement('div');
 overlay.id = 'assistant-overlay';
 overlay.innerHTML = `
     <div class="mic-circle" id="mic-indicator">
+        <svg class="progress-ring" viewBox="0 0 80 80">
+           <circle class="progress-ring__circle" r="38" cx="40" cy="40"/>
+        </svg>
         <div class="mic-icon">
             <svg viewBox="0 0 24 24"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
         </div>
@@ -80,11 +123,32 @@ const micIndicator = overlay.querySelector('#mic-indicator');
 const statusText = overlay.querySelector('#assistant-status');
 const subText = overlay.querySelector('#assistant-subtext');
 
+// ==========================================
 // 2. 邏輯控制
+// ==========================================
 let recognition = null;
 let currentState = 'idle'; 
 let isRecognitionActive = false;
-let watchdogTimer = null; // 看門狗計時器
+let watchdogTimer = null; 
+
+// 工具：重置圓環動畫
+function resetRingAnimation() {
+    const circle = document.querySelector('.progress-ring__circle');
+    if (circle) {
+        circle.style.animation = 'none';
+        circle.offsetHeight; 
+        circle.style.animation = null; 
+    }
+}
+
+// 工具：清除表格上的螢光筆痕跡 (新增)
+function clearHighlights() {
+    document.querySelectorAll('mark.highlight-match').forEach(mark => {
+        const parent = mark.parentNode;
+        parent.replaceChild(document.createTextNode(mark.innerText), mark);
+        parent.normalize(); // 合併相鄰的文字節點
+    });
+}
 
 function updateUI(state, customText) {
     currentState = state;
@@ -122,7 +186,9 @@ function updateUI(state, customText) {
     }
 }
 
+// ==========================================
 // 3. 語音辨識核心
+// ==========================================
 function initRecognition() {
     if (!('webkitSpeechRecognition' in window)) return;
     if (recognition && isRecognitionActive) return;
@@ -132,52 +198,77 @@ function initRecognition() {
     recognition.interimResults = true;
     recognition.lang = 'zh-TW';
 
+    let silenceTimer = null; 
+    let lastTranscript = ""; 
+
+    function startListeningCountdown() {
+        micIndicator.classList.remove('counting');
+        void micIndicator.offsetWidth; 
+        micIndicator.classList.add('counting');
+
+        if (silenceTimer) clearTimeout(silenceTimer);
+        silenceTimer = setTimeout(() => {
+            micIndicator.classList.remove('counting'); 
+        }, 10000);
+    }
+
     recognition.onstart = () => {
         isRecognitionActive = true;
+        lastTranscript = ""; 
+        if (watchdogTimer) clearTimeout(watchdogTimer);
+
         if (currentState === 'idle' || currentState === 'listening') {
             updateUI('listening');
+            micIndicator.classList.remove('counting'); 
             
-            // 每 10 秒重置一次，防止卡死
-            if (watchdogTimer) clearTimeout(watchdogTimer);
             watchdogTimer = setTimeout(() => {
-                if (currentState === 'listening' && isRecognitionActive) {
-                    console.log("Watchdog: Auto-resetting recognition...");
-                    recognition.stop(); 
+                if (currentState === 'listening' && isRecognitionActive) recognition.stop();
+            }, 60000); 
+        }
+        else if (currentState === 'speaking') {
+            resetRingAnimation(); 
+            watchdogTimer = setTimeout(() => {
+                if (currentState === 'speaking' && isRecognitionActive) {
+                    speakResult("操作逾時，已取消", () => { resetToIdle(); });
                 }
-            }, 10000); 
+            }, 20000); 
         }
     };
 
     recognition.onresult = (event) => {
-        // 重置看門狗
-        if (currentState === 'listening' && watchdogTimer) {
-             clearTimeout(watchdogTimer);
-             watchdogTimer = setTimeout(() => {
-                if (currentState === 'listening' && isRecognitionActive) recognition.stop();
-            }, 8000); 
-        }
-
-        let transcript = '';
+        let currentTranscript = '';
         for (let i = event.resultIndex; i < event.results.length; ++i) {
-            transcript += event.results[i][0].transcript;
+            currentTranscript += event.results[i][0].transcript;
         }
-        if(transcript.trim()) subText.innerText = transcript;
 
         if (currentState === 'listening') {
-            if (transcript.includes("找會議") || transcript.includes("查詢") || transcript.includes("查一下") || transcript.includes("找一下")) {
+            if (currentTranscript.trim() !== "" && currentTranscript !== lastTranscript) {
+                startListeningCountdown();
+                lastTranscript = currentTranscript; 
+            }
+        }
+
+        if(currentTranscript.trim()) subText.innerText = currentTranscript;
+
+        if (currentState === 'listening') {
+            if (currentTranscript.includes("找會議") || currentTranscript.includes("查詢") || currentTranscript.includes("查一下") || currentTranscript.includes("找一下")) {
+                if (silenceTimer) clearTimeout(silenceTimer);
                 triggerWakeUpFlow();
             }
         } else if (currentState === 'speaking') {
             if (event.results[event.results.length - 1].isFinal) {
-                if(transcript.trim().length > 0) {
-                    performSearch(transcript);
+                if(currentTranscript.trim().length > 0) {
+                    performSearch(currentTranscript);
                 }
             }
         }
     };
 
     recognition.onerror = (event) => {
+        if (silenceTimer) clearTimeout(silenceTimer);
+        micIndicator.classList.remove('counting');
         if (watchdogTimer) clearTimeout(watchdogTimer);
+
         if (event.error === 'aborted' || event.error === 'no-speech') {
             isRecognitionActive = false;
             if (['listening', 'speaking', 'showing_results'].includes(currentState)) {
@@ -194,7 +285,10 @@ function initRecognition() {
     };
 
     recognition.onend = () => {
+        if (silenceTimer) clearTimeout(silenceTimer);
+        micIndicator.classList.remove('counting');
         if (watchdogTimer) clearTimeout(watchdogTimer);
+        
         isRecognitionActive = false;
         if (['listening', 'speaking', 'showing_results'].includes(currentState)) {
             try { recognition.start(); } catch(e) {}
@@ -226,7 +320,7 @@ function triggerWakeUpFlow() {
             micStarted = true;
             try { recognition.start(); } catch(e) {}
         }
-    }, 2000);
+    }, 3000);
 
     try {
         window.speechSynthesis.cancel();
@@ -257,13 +351,21 @@ function performSearch(queryText) {
 
     updateUI('searching', `搜尋：${rawKeywords || (timeCheck ? formatTime(timeCheck) : '')}`);
     
+    // 清除舊的螢光筆痕跡
+    clearHighlights();
+
     const count = filterMeetingTable(timeCheck, rawKeywords);
 
     let replyMsg = count > 0 ? `找到 ${count} 筆會議` : "找不到符合的資料";
 
     let hasReset = false;
     const forceReset = () => {
-        if(!hasReset) { hasReset = true; resetTable(); resetToIdle(); }
+        if(!hasReset) { 
+            hasReset = true; 
+            clearHighlights(); // 重置時也清除螢光筆
+            resetTable(); 
+            resetToIdle(); 
+        }
     };
 
     updateUI('showing_results', replyMsg);
@@ -282,7 +384,7 @@ function extractKeywords(text) {
         .replace(/玉情/g, "疫情").replace(/異情/g, "疫情").replace(/月琴/g, "疫情")
         .replace(/夜勤/g, "疫情").replace(/熱情/g, "疫情").replace(/預情/g, "疫情");
 
-    // 【新增】茶水相關詞彙轉換
+    // 茶水相關
     cleanText = cleanText
         .replace(/有茶水/g, "茶水")
         .replace(/準備茶水/g, "茶水")
@@ -313,7 +415,9 @@ function extractKeywords(text) {
     return cleanText;
 }
 
-// 使用 pinyin-pro 套件
+// =========================================================
+// pinyin-pro 套件整合
+// =========================================================
 
 function getPinyin(text) {
     if (typeof pinyinPro === 'undefined') {
@@ -355,7 +459,7 @@ function calculateSimilarity(sourceText, keyword) {
     if (cleanKey.length === 0) return 0;
     if (cleanSource.includes(cleanKey)) return 1.0; 
 
-    // 茶水不走拼音，直接回傳0 (交給 filterMeetingTable 處理)
+    // 茶水不走拼音
     if (cleanKey === "茶水") return 0;
 
     const normalizePinyin = (p) => p.replace(/ng/g, 'n').replace(/zh/g, 'z').replace(/ch/g, 'c').replace(/sh/g, 's');
@@ -388,7 +492,7 @@ function calculateSimilarity(sourceText, keyword) {
     return hitWeight / totalWeight;
 }
 
-// --- 表格過濾 ---
+// --- 表格過濾與螢光筆上色 ---
 function filterMeetingTable(targetMinute, keyword) {
     const rows = document.querySelectorAll('.tbl-content table tbody tr');
     let matchCount = 0;
@@ -412,11 +516,11 @@ function filterMeetingTable(targetMinute, keyword) {
             }
         }
 
-        // 2. 關鍵字比對 (如果還沒選上，且有關鍵字)
+        // 2. 關鍵字比對
         if (!isMatch && keyword.length > 0) {
             const rowText = row.innerText.toLowerCase().replace(/\s/g, "");
             
-            // 【新增】茶水專用：精確比對
+            // 茶水專用
             if (keyword.includes("茶水")) {
                 if (rowText.includes("茶水")) {
                     isMatch = true;
@@ -426,7 +530,7 @@ function filterMeetingTable(targetMinute, keyword) {
             else if (requiredFloor) {
                 if (rowText.includes(requiredFloor)) isMatch = true;
             } 
-            // 一般模糊搜尋
+            // 拼音搜尋
             else {
                 const score = calculateSimilarity(rowText, keyword);
                 const threshold = keyword.length <= 2 ? 0.95 : 0.7;
@@ -443,6 +547,18 @@ function filterMeetingTable(targetMinute, keyword) {
             if (matchCount % 2 === 1) { row.classList.add('meeting-odd'); } 
             else { row.classList.add('meeting-even'); }
             if (matchCount === 1) row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            
+            // --- 新增：幫關鍵字上色 ---
+            if (keyword.length > 0) {
+                row.querySelectorAll('td').forEach(cell => {
+                    const cellText = cell.innerText;
+                    if (cellText.includes(keyword)) {
+                        const regex = new RegExp(`(${keyword})`, 'gi');
+                        cell.innerHTML = cell.innerHTML.replace(regex, '<mark class="highlight-match">$1</mark>');
+                    }
+                });
+            }
+
         } else {
             row.classList.add('meeting-hidden');
             row.classList.remove('meeting-odd', 'meeting-even');
@@ -506,7 +622,9 @@ function resetToIdle() {
     setTimeout(initRecognition, 500);
 }
 
-// 自動滾動(記得網頁上內建的滾動要關掉，它會一直刷新頁面害我錄音錄到一半直接重來)
+// ==========================================
+// 自動滾動
+// ==========================================
 let scrollDirection = 1;
 let isPausing = false;
 let frameCount = 0; 
