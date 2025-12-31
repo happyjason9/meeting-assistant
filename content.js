@@ -60,7 +60,7 @@ style.textContent = `
     .meeting-even { background-color: #f2f2f2 !important; transition: background-color 0.3s; }
     .meeting-hidden { display: none !important; }
 
-    /* --- 新增：螢光筆樣式 --- */
+    /* 螢光筆樣式 */
     mark.highlight-match {
         background-color: #ffeb3b;
         color: #000;
@@ -89,11 +89,11 @@ style.textContent = `
         fill: transparent; stroke-width: 4; stroke-linecap: round; transform-origin: center;
     }
 
-    /* 綠燈：有 .counting 才跑動畫 */
+    /* 綠燈：有 .counting 才跑動畫 (改為 4秒) */
     .mic-circle.listening .progress-ring__circle { stroke: #28a745; stroke-dasharray: 239; stroke-dashoffset: 0; }
-    .mic-circle.listening.counting .progress-ring__circle { animation: countdown 10s linear forwards; }
+    .mic-circle.listening.counting .progress-ring__circle { animation: countdown 4s linear forwards; }
 
-    /* 黃燈：一直跑動畫 */
+    /* 黃燈：一直跑動畫 (維持 20秒) */
     .mic-circle.speaking .progress-ring__circle { stroke: #ffc107; stroke-dasharray: 239; stroke-dashoffset: 0; animation: countdown 20s linear forwards; }
 
     @keyframes countdown {
@@ -141,12 +141,12 @@ function resetRingAnimation() {
     }
 }
 
-// 工具：清除表格上的螢光筆痕跡 (新增)
+// 工具：清除表格上的螢光筆痕跡
 function clearHighlights() {
     document.querySelectorAll('mark.highlight-match').forEach(mark => {
         const parent = mark.parentNode;
         parent.replaceChild(document.createTextNode(mark.innerText), mark);
-        parent.normalize(); // 合併相鄰的文字節點
+        parent.normalize(); 
     });
 }
 
@@ -207,9 +207,10 @@ function initRecognition() {
         micIndicator.classList.add('counting');
 
         if (silenceTimer) clearTimeout(silenceTimer);
+        // 改為 4000 毫秒 (4秒)
         silenceTimer = setTimeout(() => {
             micIndicator.classList.remove('counting'); 
-        }, 10000);
+        }, 4000);
     }
 
     recognition.onstart = () => {
@@ -221,6 +222,7 @@ function initRecognition() {
             updateUI('listening');
             micIndicator.classList.remove('counting'); 
             
+            // 這裡還是保留長一點的保險 (60秒)，避免真的死當
             watchdogTimer = setTimeout(() => {
                 if (currentState === 'listening' && isRecognitionActive) recognition.stop();
             }, 60000); 
@@ -351,7 +353,6 @@ function performSearch(queryText) {
 
     updateUI('searching', `搜尋：${rawKeywords || (timeCheck ? formatTime(timeCheck) : '')}`);
     
-    // 清除舊的螢光筆痕跡
     clearHighlights();
 
     const count = filterMeetingTable(timeCheck, rawKeywords);
@@ -362,7 +363,7 @@ function performSearch(queryText) {
     const forceReset = () => {
         if(!hasReset) { 
             hasReset = true; 
-            clearHighlights(); // 重置時也清除螢光筆
+            clearHighlights(); 
             resetTable(); 
             resetToIdle(); 
         }
@@ -548,7 +549,7 @@ function filterMeetingTable(targetMinute, keyword) {
             else { row.classList.add('meeting-even'); }
             if (matchCount === 1) row.scrollIntoView({ behavior: 'smooth', block: 'center' });
             
-            // --- 新增：幫關鍵字上色 ---
+            // 上色
             if (keyword.length > 0) {
                 row.querySelectorAll('td').forEach(cell => {
                     const cellText = cell.innerText;
