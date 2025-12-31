@@ -89,11 +89,11 @@ style.textContent = `
         fill: transparent; stroke-width: 4; stroke-linecap: round; transform-origin: center;
     }
 
-    /* 綠燈：有 .counting 才跑動畫 (改為 4秒) */
+    /* 綠燈：有 .counting 才跑動畫 (4秒) */
     .mic-circle.listening .progress-ring__circle { stroke: #28a745; stroke-dasharray: 239; stroke-dashoffset: 0; }
     .mic-circle.listening.counting .progress-ring__circle { animation: countdown 4s linear forwards; }
 
-    /* 黃燈：一直跑動畫 (維持 20秒) */
+    /* 黃燈：一直跑動畫 (20秒) */
     .mic-circle.speaking .progress-ring__circle { stroke: #ffc107; stroke-dasharray: 239; stroke-dashoffset: 0; animation: countdown 20s linear forwards; }
 
     @keyframes countdown {
@@ -207,9 +207,11 @@ function initRecognition() {
         micIndicator.classList.add('counting');
 
         if (silenceTimer) clearTimeout(silenceTimer);
-        // 改為 4000 毫秒 (4秒)
+        // 4秒後 reset
         silenceTimer = setTimeout(() => {
-            micIndicator.classList.remove('counting'); 
+            micIndicator.classList.remove('counting');
+            // 【修正】4秒到期時，把文字重置回預設提示
+            subText.innerText = "請說：我要找會議室";
         }, 4000);
     }
 
@@ -222,7 +224,7 @@ function initRecognition() {
             updateUI('listening');
             micIndicator.classList.remove('counting'); 
             
-            // 這裡還是保留長一點的保險 (60秒)，避免真的死當
+            // 安全機制
             watchdogTimer = setTimeout(() => {
                 if (currentState === 'listening' && isRecognitionActive) recognition.stop();
             }, 60000); 
