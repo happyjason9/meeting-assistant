@@ -571,24 +571,33 @@ function filterMeetingTable(targetMinute, keyword) {
 }
 
 function parseTimeFromSpeech(text) {
+    // 明確說「上午」才算上午，否則 1~6 點自動視為下午（公司上班 7:00~18:00）
+    let isAM = text.includes("上午") || text.includes("早上") || text.includes("凌晨");
     let isPM = text.includes("下午") || text.includes("晚上") || text.includes("晚間");
-    let match = text.match(/(\d{1,2})[:點](\d{0,2})/); 
+
+    function adjustHour(hour) {
+        if (isAM) return hour; // 明確說上午，不調整
+        if (isPM && hour < 12) return hour + 12; // 明確說下午
+        // 沒說上午也沒說下午：1~6 點判為下午，7~12 點維持原值
+        if (hour >= 1 && hour <= 6) return hour + 12;
+        return hour;
+    }
+
+    let match = text.match(/(\d{1,2})[:點](\d{0,2})/);
     if (!match) {
         const cnNums = {'一':1, '兩':2, '二':2, '三':3, '四':4, '五':5, '六':6, '七':7, '八':8, '九':9, '十':10, '十一':11, '十二':12};
         for (let key in cnNums) {
             if (text.includes(key + "點")) {
-                let hour = cnNums[key];
-                if (isPM && hour < 12) hour += 12;
+                let hour = adjustHour(cnNums[key]);
                 return hour * 60;
             }
         }
         return null;
     }
-    let hour = parseInt(match[1]);
+    let hour = adjustHour(parseInt(match[1]));
     let minute = parseInt(match[2]) || 0;
     if (text.includes("半")) minute = 30;
-    if (isPM && hour < 12) hour += 12;
-    return hour * 60 + minute; 
+    return hour * 60 + minute;
 }
 
 function parseTimeStr(str) {
