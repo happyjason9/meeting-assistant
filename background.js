@@ -4,16 +4,29 @@
 const OFFSCREEN_URL = chrome.runtime.getURL('offscreen.html');
 
 async function ensureOffscreenDocument() {
-    const existing = await chrome.offscreen.getContexts({
-        contextTypes: ['OFFSCREEN_DOCUMENT'],
-        documentUrls: [OFFSCREEN_URL]
-    });
-    if (existing.length === 0) {
-        await chrome.offscreen.createDocument({
-            url: OFFSCREEN_URL,
-            reasons: ['USER_MEDIA'],
-            justification: '語音辨識需要麥克風存取'
+    // chrome.offscreen.getContexts 在部分 Chrome 版本不存在，改用 runtime.getContexts
+    let hasDocument = false;
+    try {
+        const contexts = await chrome.runtime.getContexts({
+            contextTypes: ['OFFSCREEN_DOCUMENT'],
+            documentUrls: [OFFSCREEN_URL]
         });
+        hasDocument = contexts.length > 0;
+    } catch(e) {
+        // getContexts 也不支援時，直接嘗試建立（重複建立會丟錯，catch 掉即可）
+        hasDocument = false;
+    }
+
+    if (!hasDocument) {
+        try {
+            await chrome.offscreen.createDocument({
+                url: OFFSCREEN_URL,
+                reasons: ['USER_MEDIA'],
+                justification: '語音辨識需要麥克風存取'
+            });
+        } catch(e) {
+            // 已存在時 createDocument 會拋錯，忽略即可
+        }
     }
 }
 
