@@ -126,10 +126,9 @@ const subText = overlay.querySelector('#assistant-subtext');
 // ==========================================
 // 2. 邏輯控制
 // ==========================================
-let recognition = null;
-let currentState = 'idle'; 
+let currentState = 'idle';
 let isRecognitionActive = false;
-let watchdogTimer = null; 
+let watchdogTimer = null;
 
 // 工具：重置圓環動畫
 function resetRingAnimation() {
@@ -187,72 +186,78 @@ function updateUI(state, customText) {
 }
 
 // ==========================================
-// 3. 語音辨識核心
+// 3. 語音辨識核心（透過 offscreen document）
 // ==========================================
-function initRecognition() {
-    if (!('webkitSpeechRecognition' in window)) return;
-    if (recognition && isRecognitionActive) return;
 
-    recognition = new webkitSpeechRecognition();
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.lang = 'zh-TW';
+let silenceTimer = null;
+let lastTranscript = "";
 
-    let silenceTimer = null; 
-    let lastTranscript = ""; 
+function startListeningCountdown() {
+    micIndicator.classList.remove('counting');
+    void micIndicator.offsetWidth;
+    micIndicator.classList.add('counting');
 
-    function startListeningCountdown() {
+    if (silenceTimer) clearTimeout(silenceTimer);
+    silenceTimer = setTimeout(() => {
         micIndicator.classList.remove('counting');
-        void micIndicator.offsetWidth; 
-        micIndicator.classList.add('counting');
+        subText.innerText = "請說：我要找會議室";
+    }, 4000);
+}
 
-        if (silenceTimer) clearTimeout(silenceTimer);
-        // 4秒後 reset
-        silenceTimer = setTimeout(() => {
-            micIndicator.classList.remove('counting');
-            // 【修正】4秒到期時，把文字重置回預設提示
-            subText.innerText = "請說：我要找會議室";
-        }, 4000);
-    }
+function startRecognition(mode) {
+    isRecognitionActive = true;
+    chrome.runtime.sendMessage({
+        target: 'background',
+        action: 'start_recognition',
+        mode: mode || currentState
+    });
+}
 
-    recognition.onstart = () => {
-        isRecognitionActive = true;
-        lastTranscript = ""; 
+function stopRecognition() {
+    isRecognitionActive = false;
+    chrome.runtime.sendMessage({
+        target: 'background',
+        action: 'stop_recognition'
+    });
+}
+
+// 接收來自 offscreen（由 background 轉發）的語音辨識事件
+chrome.runtime.onMessage.addListener((msg) => {
+    if (msg.target !== 'content') return;
+
+    if (msg.action === 'recognition_started') {
+        lastTranscript = "";
         if (watchdogTimer) clearTimeout(watchdogTimer);
 
         if (currentState === 'idle' || currentState === 'listening') {
             updateUI('listening');
-            micIndicator.classList.remove('counting'); 
-            
-            // 安全機制
+            micIndicator.classList.remove('counting');
             watchdogTimer = setTimeout(() => {
-                if (currentState === 'listening' && isRecognitionActive) recognition.stop();
-            }, 60000); 
+                if (currentState === 'listening' && isRecognitionActive) stopRecognition();
+            }, 60000);
         }
         else if (currentState === 'speaking') {
-            resetRingAnimation(); 
+            resetRingAnimation();
             watchdogTimer = setTimeout(() => {
                 if (currentState === 'speaking' && isRecognitionActive) {
                     speakResult("操作逾時，已取消", () => { resetToIdle(); });
                 }
-            }, 20000); 
+            }, 20000);
         }
-    };
+    }
 
-    recognition.onresult = (event) => {
-        let currentTranscript = '';
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-            currentTranscript += event.results[i][0].transcript;
-        }
+    else if (msg.action === 'result') {
+        const currentTranscript = msg.transcript || '';
+        const isFinal = msg.isFinal;
 
         if (currentState === 'listening') {
             if (currentTranscript.trim() !== "" && currentTranscript !== lastTranscript) {
                 startListeningCountdown();
-                lastTranscript = currentTranscript; 
+                lastTranscript = currentTranscript;
             }
         }
 
-        if(currentTranscript.trim()) subText.innerText = currentTranscript;
+        if (currentTranscript.trim()) subText.innerText = currentTranscript;
 
         if (currentState === 'listening') {
             if (currentTranscript.includes("找會議") || currentTranscript.includes("查詢") || currentTranscript.includes("查一下") || currentTranscript.includes("找一下")) {
@@ -260,83 +265,84 @@ function initRecognition() {
                 triggerWakeUpFlow();
             }
         } else if (currentState === 'speaking') {
-            if (event.results[event.results.length - 1].isFinal) {
-                if(currentTranscript.trim().length > 0) {
-                    performSearch(currentTranscript);
-                }
+            if (isFinal && currentTranscript.trim().length > 0) {
+                performSearch(currentTranscript);
             }
         }
-    };
+    }
 
-    recognition.onerror = (event) => {
+    else if (msg.action === 'error') {
         if (silenceTimer) clearTimeout(silenceTimer);
         micIndicator.classList.remove('counting');
         if (watchdogTimer) clearTimeout(watchdogTimer);
 
-        if (event.error === 'aborted' || event.error === 'no-speech') {
+        const error = msg.error;
+        if (error === 'aborted' || error === 'no-speech') {
             isRecognitionActive = false;
             if (['listening', 'speaking', 'showing_results'].includes(currentState)) {
-                setTimeout(() => { try{recognition.start()}catch(e){} }, 500);
+                setTimeout(() => startRecognition(currentState), 500);
             }
-            return;
-        }
-        if (event.error === 'not-allowed') {
+        } else if (error === 'not-allowed') {
             isRecognitionActive = false;
-        } else {
             updateUI('error');
+        } else {
             isRecognitionActive = false;
+            updateUI('error');
         }
-    };
+    }
 
-    recognition.onend = () => {
+    else if (msg.action === 'ended') {
         if (silenceTimer) clearTimeout(silenceTimer);
         micIndicator.classList.remove('counting');
         if (watchdogTimer) clearTimeout(watchdogTimer);
-        
+
         isRecognitionActive = false;
         if (['listening', 'speaking', 'showing_results'].includes(currentState)) {
-            try { recognition.start(); } catch(e) {}
+            setTimeout(() => startRecognition(currentState), 300);
         }
-    };
+    }
+});
 
+function initRecognition() {
+    if (isRecognitionActive) return;
     updateUI('listening');
-    try { recognition.start(); } catch(e) {}
+    startRecognition('listening');
 }
 
 function triggerWakeUpFlow() {
     if (watchdogTimer) { clearTimeout(watchdogTimer); watchdogTimer = null; }
-    
+
     updateUI('speaking');
-    if (recognition) { recognition.onend = null; recognition.stop(); isRecognitionActive = false; }
+    stopRecognition();
 
     const utterance = new SpeechSynthesisUtterance("請說出查詢條件");
     utterance.lang = 'zh-TW';
-    
+
     let micStarted = false;
     utterance.onend = () => {
         if (!micStarted) {
             micStarted = true;
-            setTimeout(() => { try { recognition.start(); } catch(e) {} }, 800);
+            setTimeout(() => startRecognition('speaking'), 800);
         }
     };
     setTimeout(() => {
         if (!micStarted) {
             micStarted = true;
-            try { recognition.start(); } catch(e) {}
+            startRecognition('speaking');
         }
     }, 3000);
 
     try {
         window.speechSynthesis.cancel();
         window.speechSynthesis.speak(utterance);
-    } catch(e) { 
-        if (!micStarted) { micStarted = true; try { recognition.start(); } catch(e) {} }
+    } catch(e) {
+        if (!micStarted) { micStarted = true; startRecognition('speaking'); }
     }
 }
 
 // --- 流程 2: 搜尋 ---
 function performSearch(queryText) {
-    if (recognition) { recognition.onend = null; recognition.stop(); isRecognitionActive = false; }
+    stopRecognition();
     
     let rawKeywords = extractKeywords(queryText);
     const timeCheck = parseTimeFromSpeech(queryText);
@@ -348,7 +354,7 @@ function performSearch(queryText) {
     if (rawKeywords.length < 1 && timeCheck === null) {
         updateUI('speaking', '請說具體一點...');
         speakResult("請告訴我時間或關鍵字", () => {
-            try { recognition.start(); } catch(e) {}
+            startRecognition('speaking');
         });
         return;
     }
