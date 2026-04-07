@@ -5,8 +5,7 @@
     "permissions": [
         "activeTab",
         "scripting",
-        "downloads",
-        "offscreen"
+        "downloads"
     ],
     "host_permissions": [
         "<all_urls>"

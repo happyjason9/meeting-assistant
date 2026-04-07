@@ -186,9 +186,10 @@ function updateUI(state, customText) {
 }
 
 // ==========================================
-// 3. 語音辨識核心（透過 offscreen document）
+// 3. 語音辨識核心（直接在 content script 跑）
 // ==========================================
 
+let recognition = null;
 let silenceTimer = null;
 let lastTranscript = "";
 
@@ -204,36 +205,24 @@ function startListeningCountdown() {
     }, 4000);
 }
 
-function safeSendMessage(msg) {
-    try {
-        chrome.runtime.sendMessage(msg);
-    } catch(e) {
-        // Extension context 已失效（頁面未重整），靜默忽略
+function stopRecognition() {
+    isRecognitionActive = false;
+    if (recognition) {
+        try { recognition.stop(); } catch(e) {}
+        recognition = null;
     }
 }
 
-function startRecognition(mode) {
+function startRecognition(_mode) {
+    if (isRecognitionActive) return;
     isRecognitionActive = true;
-    safeSendMessage({
-        target: 'background',
-        action: 'start_recognition',
-        mode: mode || currentState
-    });
-}
 
-function stopRecognition() {
-    isRecognitionActive = false;
-    safeSendMessage({
-        target: 'background',
-        action: 'stop_recognition'
-    });
-}
+    recognition = new webkitSpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = 'zh-TW';
 
-// 接收來自 offscreen（由 background 轉發）的語音辨識事件
-chrome.runtime.onMessage.addListener((msg) => {
-    if (msg.target !== 'content') return;
-
-    if (msg.action === 'recognition_started') {
+    recognition.onstart = () => {
         lastTranscript = "";
         if (watchdogTimer) clearTimeout(watchdogTimer);
 
@@ -243,8 +232,7 @@ chrome.runtime.onMessage.addListener((msg) => {
             watchdogTimer = setTimeout(() => {
                 if (currentState === 'listening' && isRecognitionActive) stopRecognition();
             }, 60000);
-        }
-        else if (currentState === 'speaking') {
+        } else if (currentState === 'speaking') {
             resetRingAnimation();
             watchdogTimer = setTimeout(() => {
                 if (currentState === 'speaking' && isRecognitionActive) {
@@ -252,11 +240,15 @@ chrome.runtime.onMessage.addListener((msg) => {
                 }
             }, 20000);
         }
-    }
+    };
 
-    else if (msg.action === 'result') {
-        const currentTranscript = msg.transcript || '';
-        const isFinal = msg.isFinal;
+    recognition.onresult = (event) => {
+        let currentTranscript = '';
+        let isFinal = false;
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+            currentTranscript += event.results[i][0].transcript;
+            if (event.results[i].isFinal) isFinal = true;
+        }
 
         if (currentState === 'listening') {
             if (currentTranscript.trim() !== "" && currentTranscript !== lastTranscript) {
@@ -277,40 +269,41 @@ chrome.runtime.onMessage.addListener((msg) => {
                 performSearch(currentTranscript);
             }
         }
-    }
+    };
 
-    else if (msg.action === 'error') {
+    recognition.onerror = (event) => {
         if (silenceTimer) clearTimeout(silenceTimer);
         micIndicator.classList.remove('counting');
         if (watchdogTimer) clearTimeout(watchdogTimer);
+        isRecognitionActive = false;
+        recognition = null;
 
-        const error = msg.error;
+        const error = event.error;
         if (error === 'aborted' || error === 'no-speech') {
-            isRecognitionActive = false;
             if (['listening', 'speaking', 'showing_results'].includes(currentState)) {
                 setTimeout(() => startRecognition(currentState), 500);
             }
         } else if (error === 'not-allowed') {
-            isRecognitionActive = false;
-            updateUI('error', '請右鍵點擊擴充圖示 > 選項，允許麥克風權限');
+            updateUI('error', '請允許麥克風權限後重新整理頁面');
         } else {
-            isRecognitionActive = false;
             updateUI('error');
         }
-    }
+    };
 
-    else if (msg.action === 'ended') {
+    recognition.onend = () => {
         if (silenceTimer) clearTimeout(silenceTimer);
         micIndicator.classList.remove('counting');
         if (watchdogTimer) clearTimeout(watchdogTimer);
-
         isRecognitionActive = false;
-        // searching/idle/transitioning 時不自動重啟
+        recognition = null;
+
         if (['listening', 'speaking', 'showing_results'].includes(currentState)) {
             setTimeout(() => startRecognition(currentState), 300);
         }
-    }
-});
+    };
+
+    try { recognition.start(); } catch(e) {}
+}
 
 function initRecognition() {
     if (isRecognitionActive) return;
