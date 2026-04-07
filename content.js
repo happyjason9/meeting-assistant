@@ -204,9 +204,17 @@ function startListeningCountdown() {
     }, 4000);
 }
 
+function safeSendMessage(msg) {
+    try {
+        chrome.runtime.sendMessage(msg);
+    } catch(e) {
+        // Extension context 已失效（頁面未重整），靜默忽略
+    }
+}
+
 function startRecognition(mode) {
     isRecognitionActive = true;
-    chrome.runtime.sendMessage({
+    safeSendMessage({
         target: 'background',
         action: 'start_recognition',
         mode: mode || currentState
@@ -215,7 +223,7 @@ function startRecognition(mode) {
 
 function stopRecognition() {
     isRecognitionActive = false;
-    chrome.runtime.sendMessage({
+    safeSendMessage({
         target: 'background',
         action: 'stop_recognition'
     });
