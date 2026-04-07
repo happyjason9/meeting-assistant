@@ -12,6 +12,7 @@ document.getElementById('request-btn').addEventListener('click', async () => {
         successDiv.style.display = 'block';
     } catch (err) {
         console.error('取得麥克風權限失敗:', err);
+        errorDiv.innerText = '❌ 無法取得麥克風權限，請確認系統隱私權設定。錯誤代碼：' + err.name + ' - ' + err.message;
         errorDiv.style.display = 'block';
     }
 });
