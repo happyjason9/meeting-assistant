@@ -6,8 +6,7 @@
         "activeTab",
         "scripting",
         "downloads",
-        "offscreen",
-        "audioCapture"
+        "offscreen"
     ],
     "host_permissions": [
         "<all_urls>"
