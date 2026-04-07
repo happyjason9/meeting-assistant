@@ -305,7 +305,7 @@ chrome.runtime.onMessage.addListener((msg) => {
         if (watchdogTimer) clearTimeout(watchdogTimer);
 
         isRecognitionActive = false;
-        // searching/idle 時不自動重啟，避免搜尋中被干擾
+        // searching/idle/transitioning 時不自動重啟
         if (['listening', 'speaking', 'showing_results'].includes(currentState)) {
             setTimeout(() => startRecognition(currentState), 300);
         }
@@ -322,35 +322,37 @@ function triggerWakeUpFlow() {
     if (watchdogTimer) { clearTimeout(watchdogTimer); watchdogTimer = null; }
 
     updateUI('speaking');
+    // 先把狀態設為 transitioning，讓 ended 事件不會自動重啟
+    currentState = 'transitioning';
     stopRecognition();
 
     const utterance = new SpeechSynthesisUtterance("請說出查詢條件");
     utterance.lang = 'zh-TW';
 
     let micStarted = false;
-    utterance.onend = () => {
+    const doStart = () => {
         if (!micStarted) {
             micStarted = true;
-            setTimeout(() => startRecognition('speaking'), 800);
+            currentState = 'speaking';
+            updateUI('speaking');
+            setTimeout(() => startRecognition('speaking'), 100);
         }
     };
-    setTimeout(() => {
-        if (!micStarted) {
-            micStarted = true;
-            startRecognition('speaking');
-        }
-    }, 3000);
+
+    utterance.onend = () => doStart();
+    setTimeout(doStart, 3000); // fallback
 
     try {
         window.speechSynthesis.cancel();
         window.speechSynthesis.speak(utterance);
     } catch(e) {
-        if (!micStarted) { micStarted = true; startRecognition('speaking'); }
+        doStart();
     }
 }
 
 // --- 流程 2: 搜尋 ---
 function performSearch(queryText) {
+    currentState = 'searching'; // 先設定，避免 ended 事件觸發重啟
     stopRecognition();
     
     let rawKeywords = extractKeywords(queryText);
