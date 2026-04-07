@@ -305,6 +305,7 @@ chrome.runtime.onMessage.addListener((msg) => {
         if (watchdogTimer) clearTimeout(watchdogTimer);
 
         isRecognitionActive = false;
+        // searching/idle 時不自動重啟，避免搜尋中被干擾
         if (['listening', 'speaking', 'showing_results'].includes(currentState)) {
             setTimeout(() => startRecognition(currentState), 300);
         }

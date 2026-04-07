@@ -69,6 +69,7 @@ function startRecognition() {
 function stopRecognition() {
     if (recognition) {
         try { recognition.stop(); } catch(e) {}
+        recognition = null; // 強制下次重新建立，確保 mode/事件同步
     }
     isActive = false;
 }

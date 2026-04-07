@@ -34,14 +34,16 @@ async function ensureOffscreenDocument() {
 // content script → background → offscreen
 // offscreen → background → content script (由 tabId 路由)
 
-let contentTabId = null; // 記錄要回傳的 tab
+const contentTabs = new Set(); // 記錄所有活躍的 tab
+
+chrome.tabs.onRemoved.addListener((tabId) => contentTabs.delete(tabId));
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
     // 來自 content script，要控制語音辨識
     if (msg.target === 'background') {
         if (msg.action === 'start_recognition') {
-            contentTabId = sender.tab ? sender.tab.id : null;
+            if (sender.tab) contentTabs.add(sender.tab.id);
             ensureOffscreenDocument().then(() => {
                 chrome.runtime.sendMessage({
                     target: 'offscreen',
@@ -79,18 +81,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         return true;
     }
 
-    // 來自 offscreen，轉發給 content script
+    // 來自 offscreen，轉發給所有活躍的 content tab
     if (msg.target === 'content') {
-        if (contentTabId !== null) {
-            chrome.tabs.sendMessage(contentTabId, msg);
-        } else {
-            // fallback：廣播給所有 tab
-            chrome.tabs.query({}, (tabs) => {
-                tabs.forEach(tab => {
-                    chrome.tabs.sendMessage(tab.id, msg).catch(() => {});
-                });
+        contentTabs.forEach(tabId => {
+            chrome.tabs.sendMessage(tabId, msg).catch(() => {
+                contentTabs.delete(tabId); // 失效的 tab 移除
             });
-        }
+        });
         return false;
     }
 });
