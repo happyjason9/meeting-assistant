@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>會議室語音助理 - 權限設定</title>
+    <style>
+        body { font-family: 'Noto Sans TC', sans-serif; padding: 30px; text-align: center; }
+        .container { max-width: 500px; margin: 0 auto; background: #f9f9f9; padding: 30px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+        h1 { font-size: 24px; color: #333; margin-top: 0; }
+        p { color: #666; line-height: 1.6; }
+        .btn { 
+            display: inline-block; padding: 12px 24px; font-size: 16px; font-weight: bold;
+            color: white; background-color: #007bff; border: none; border-radius: 6px;
+            cursor: pointer; transition: background 0.3s; margin-top: 15px;
+        }
+        .btn:hover { background-color: #0056b3; }
+        .success { color: #28a745; display: none; font-weight: bold; margin-top: 15px; }
+        .error { color: #dc3545; display: none; font-weight: bold; margin-top: 15px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>麥克風權限設定</h1>
+    <p>會議室助理需要存取麥克風，才能將您的語音轉換為指令。</p>
+    <p>如果您在網頁上看到「暫停服務」或「收不到聲音」，請點擊下方按鈕並選擇「允許」。</p>
+    
+    <button id="request-btn" class="btn">重新授予麥克風權限</button>
+    
+    <div id="status-success" class="success">✅ 麥克風權限已取得！您現在可以關閉此頁籤。</div>
+    <div id="status-error" class="error">❌ 無法取得麥克風權限，請確認系統隱私權設定。</div>
+</div>
+
+<script src="options.js"></script>
+</body>
+</html>

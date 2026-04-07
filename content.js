@@ -181,7 +181,7 @@ function updateUI(state, customText) {
     else if (state === 'error') {
         container.classList.remove('active-mode');
         statusText.innerText = "暫停服務";
-        subText.innerText = "請點擊重試";
+        subText.innerText = customText || "請點擊重試";
     }
 }
 
@@ -292,7 +292,7 @@ chrome.runtime.onMessage.addListener((msg) => {
             }
         } else if (error === 'not-allowed') {
             isRecognitionActive = false;
-            updateUI('error');
+            updateUI('error', '請右鍵點擊擴充圖示 > 選項，允許麥克風權限');
         } else {
             isRecognitionActive = false;
             updateUI('error');

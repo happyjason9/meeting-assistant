@@ -4,6 +4,7 @@
 let recognition = null;
 let isActive = false;
 let currentMode = 'listening'; // 'listening' | 'speaking'
+let audioStream = null; // 保留 stream 避免被回收
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.target !== 'offscreen') return;
@@ -24,8 +25,18 @@ function send(payload) {
     chrome.runtime.sendMessage({ target: 'content', ...payload });
 }
 
-function startRecognition() {
+async function startRecognition() {
     if (isActive) return;
+
+    // Chrome 145+ 安全性修復：必須實際呼叫 getUserMedia 才能讓背景的 Speech API 收到聲音
+    if (!audioStream) {
+        try {
+            audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        } catch (e) {
+            send({ action: 'error', error: 'not-allowed', mode: currentMode });
+            return;
+        }
+    }
 
     if (!recognition) {
         recognition = new webkitSpeechRecognition();
@@ -70,6 +81,10 @@ function stopRecognition() {
     if (recognition) {
         try { recognition.stop(); } catch(e) {}
         recognition = null; // 強制下次重新建立，確保 mode/事件同步
+    }
+    if (audioStream) {
+        audioStream.getTracks().forEach(track => track.stop());
+        audioStream = null;
     }
     isActive = false;
 }
