@@ -129,6 +129,7 @@ const subText = overlay.querySelector('#assistant-subtext');
 let currentState = 'idle';
 let isRecognitionActive = false;
 let watchdogTimer = null;
+let isTranslateMode = false;
 
 // 工具：重置圓環動畫
 function resetRingAnimation() {
@@ -149,6 +150,33 @@ function clearHighlights() {
     });
 }
 
+// 介面與語音文字：翻譯模式下用英文，否則中文
+const I18N = {
+    listening_status:   { zh: "聆聽中",            en: "Listening" },
+    listening_sub:      { zh: "請說：我要找會議室", en: 'Say: "Find a meeting room"' },
+    speaking_status:    { zh: "請說出查詢內容",     en: "Say your query" },
+    speaking_sub:       { zh: "如：李組長、茶水、十點的會", en: "e.g. name, time, keyword" },
+    searching_status:   { zh: "搜尋中...",          en: "Searching..." },
+    searching_sub:      { zh: "資料篩選中...",       en: "Filtering..." },
+    results_status:     { zh: "搜尋完成",            en: "Done" },
+    error_status:       { zh: "暫停服務",            en: "Paused" },
+    error_sub:          { zh: "請點擊重試",          en: "Click to retry" },
+    say_query_prompt:   { zh: "請說出查詢條件",      en: "Please say your query" },
+    timeout:            { zh: "操作逾時，已取消",     en: "Timed out, cancelled" },
+    say_specific:       { zh: "請說具體一點...",     en: "Please be more specific..." },
+    tell_time_keyword:  { zh: "請告訴我時間或關鍵字", en: "Tell me a time or keyword" },
+    found_meetings:     { zh: (n) => `找到 ${n} 筆會議`, en: (n) => `Found ${n} meeting(s)` },
+    not_found:          { zh: "找不到符合的資料",     en: "No matching results" },
+    searching_for:      { zh: (k) => `搜尋：${k}`,    en: (k) => `Search: ${k}` },
+};
+
+function t(key, arg) {
+    const entry = I18N[key];
+    if (!entry) return '';
+    const val = isTranslateMode ? entry.en : entry.zh;
+    return typeof val === 'function' ? val(arg) : val;
+}
+
 function updateUI(state, customText) {
     currentState = state;
     micIndicator.className = 'mic-circle';
@@ -157,31 +185,31 @@ function updateUI(state, customText) {
     if (state === 'listening') {
         container.classList.remove('active-mode');
         micIndicator.classList.add('listening');
-        statusText.innerText = "聆聽中";
-        subText.innerText = "請說：我要找會議室";
-    } 
+        statusText.innerText = t('listening_status');
+        subText.innerText = t('listening_sub');
+    }
     else if (state === 'speaking') {
         container.classList.add('active-mode');
         micIndicator.classList.add('speaking');
-        statusText.innerText = "請說出查詢內容";
-        subText.innerText = "如：李組長、茶水、十點的會";
-    } 
+        statusText.innerText = t('speaking_status');
+        subText.innerText = t('speaking_sub');
+    }
     else if (state === 'searching') {
         container.classList.add('active-mode');
         micIndicator.classList.add('searching');
-        statusText.innerText = "搜尋中...";
-        subText.innerText = customText || "資料篩選中...";
+        statusText.innerText = t('searching_status');
+        subText.innerText = customText || t('searching_sub');
     }
     else if (state === 'showing_results') {
         container.classList.remove('active-mode');
         micIndicator.classList.add('listening');
-        statusText.innerText = "搜尋完成";
+        statusText.innerText = t('results_status');
         subText.innerText = customText;
     }
     else if (state === 'error') {
         container.classList.remove('active-mode');
-        statusText.innerText = "暫停服務";
-        subText.innerText = customText || "請點擊重試";
+        statusText.innerText = t('error_status');
+        subText.innerText = customText || t('error_sub');
     }
 }
 
@@ -201,7 +229,7 @@ function startListeningCountdown() {
     if (silenceTimer) clearTimeout(silenceTimer);
     silenceTimer = setTimeout(() => {
         micIndicator.classList.remove('counting');
-        subText.innerText = "請說：我要找會議室";
+        subText.innerText = t('listening_sub');
     }, 4000);
 }
 
@@ -215,6 +243,13 @@ function stopRecognition() {
 
 function startRecognition(_mode) {
     if (isRecognitionActive) return;
+
+    if (!('webkitSpeechRecognition' in window)) {
+        console.error('[語音助理] 此瀏覽器不支援 webkitSpeechRecognition');
+        updateUI('error', '此瀏覽器不支援語音辨識');
+        return;
+    }
+
     isRecognitionActive = true;
 
     recognition = new webkitSpeechRecognition();
@@ -223,6 +258,7 @@ function startRecognition(_mode) {
     recognition.lang = 'zh-TW';
 
     recognition.onstart = () => {
+        console.log('[語音助理] onstart：語音辨識已啟動 state=' + currentState);
         lastTranscript = "";
         if (watchdogTimer) clearTimeout(watchdogTimer);
 
@@ -236,7 +272,7 @@ function startRecognition(_mode) {
             resetRingAnimation();
             watchdogTimer = setTimeout(() => {
                 if (currentState === 'speaking' && isRecognitionActive) {
-                    speakResult("操作逾時，已取消", () => { resetToIdle(); });
+                    speakResult(t('timeout'), () => { resetToIdle(); });
                 }
             }, 20000);
         }
@@ -249,6 +285,7 @@ function startRecognition(_mode) {
             currentTranscript += event.results[i][0].transcript;
             if (event.results[i].isFinal) isFinal = true;
         }
+        console.log('[語音助理] onresult：', currentTranscript, 'isFinal=' + isFinal);
 
         if (currentState === 'listening') {
             if (currentTranscript.trim() !== "" && currentTranscript !== lastTranscript) {
@@ -257,10 +294,22 @@ function startRecognition(_mode) {
             }
         }
 
-        if (currentTranscript.trim()) subText.innerText = currentTranscript;
+        // 翻譯模式下不顯示辨識到的中文語音文字，保持英文提示
+        if (currentTranscript.trim() && !isTranslateMode) subText.innerText = currentTranscript;
 
         if (currentState === 'listening') {
-            if (currentTranscript.includes("找會議") || currentTranscript.includes("查詢") || currentTranscript.includes("查一下") || currentTranscript.includes("找一下")) {
+            if (currentTranscript.includes("翻譯成英文") || currentTranscript.includes("翻譯英文")) {
+                if (silenceTimer) clearTimeout(silenceTimer);
+                if (isTranslating) return; // 翻譯進行中，忽略重複指令
+                isTranslateMode = true;
+                currentState = 'transitioning';
+                stopRecognition();
+                translateTableToEnglish(); // 立即整頁翻譯
+            } else if (currentTranscript.includes("翻譯成中文") || currentTranscript.includes("翻譯中文") || currentTranscript.includes("顯示中文") || currentTranscript.includes("還原中文")) {
+                if (silenceTimer) clearTimeout(silenceTimer);
+                isTranslateMode = false;
+                restoreOriginalText();
+            } else if (currentTranscript.includes("找會議") || currentTranscript.includes("查詢") || currentTranscript.includes("查一下") || currentTranscript.includes("找一下")) {
                 if (silenceTimer) clearTimeout(silenceTimer);
                 triggerWakeUpFlow();
             }
@@ -279,18 +328,20 @@ function startRecognition(_mode) {
         recognition = null;
 
         const error = event.error;
+        console.error('[語音助理] onerror：', error);
         if (error === 'aborted' || error === 'no-speech') {
             if (['listening', 'speaking', 'showing_results'].includes(currentState)) {
                 setTimeout(() => startRecognition(currentState), 500);
             }
-        } else if (error === 'not-allowed') {
-            updateUI('error', '請允許麥克風權限後重新整理頁面');
+        } else if (error === 'not-allowed' || error === 'service-not-allowed') {
+            updateUI('error', '麥克風未授權，請點擊網址列鎖頭允許此網站使用麥克風');
         } else {
             updateUI('error');
         }
     };
 
     recognition.onend = () => {
+        console.log('[語音助理] onend：辨識結束 state=' + currentState);
         if (silenceTimer) clearTimeout(silenceTimer);
         micIndicator.classList.remove('counting');
         if (watchdogTimer) clearTimeout(watchdogTimer);
@@ -302,12 +353,37 @@ function startRecognition(_mode) {
         }
     };
 
-    try { recognition.start(); } catch(e) {}
+    try {
+        recognition.start();
+    } catch(e) {
+        console.error('[語音助理] recognition.start() 失敗：', e);
+        isRecognitionActive = false;
+    }
 }
 
-function initRecognition() {
+let micPermissionGranted = false;
+
+async function ensureMicPermission() {
+    if (micPermissionGranted) return true;
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        // 立即釋放硬體，SpeechRecognition 會自己再開
+        stream.getTracks().forEach(t => t.stop());
+        micPermissionGranted = true;
+        console.log('[語音助理] 已取得本網頁麥克風權限');
+        return true;
+    } catch (err) {
+        console.error('[語音助理] getUserMedia 取得麥克風權限失敗：', err.name, err.message);
+        updateUI('error', '請允許此網站使用麥克風（點網址列鎖頭）');
+        return false;
+    }
+}
+
+async function initRecognition() {
     if (isRecognitionActive) return;
     updateUI('listening');
+    const ok = await ensureMicPermission();
+    if (!ok) return;
     startRecognition('listening');
 }
 
@@ -319,8 +395,8 @@ function triggerWakeUpFlow() {
     currentState = 'transitioning';
     stopRecognition();
 
-    const utterance = new SpeechSynthesisUtterance("請說出查詢條件");
-    utterance.lang = 'zh-TW';
+    const utterance = new SpeechSynthesisUtterance(t('say_query_prompt'));
+    utterance.lang = isTranslateMode ? 'en-US' : 'zh-TW';
 
     let micStarted = false;
     const doStart = () => {
@@ -356,29 +432,29 @@ function performSearch(queryText) {
     }
 
     if (rawKeywords.length < 1 && timeCheck === null) {
-        updateUI('speaking', '請說具體一點...');
-        speakResult("請告訴我時間或關鍵字", () => {
+        updateUI('speaking', t('say_specific'));
+        speakResult(t('tell_time_keyword'), () => {
             startRecognition('speaking');
         });
         return;
     }
 
-    updateUI('searching', `搜尋：${rawKeywords || (timeCheck ? formatTime(timeCheck) : '')}`);
-    
+    updateUI('searching', t('searching_for', rawKeywords || (timeCheck ? formatTime(timeCheck) : '')));
+
     clearHighlights();
 
     const count = filterMeetingTable(timeCheck, rawKeywords);
 
-    let replyMsg = count > 0 ? `找到 ${count} 筆會議` : "找不到符合的資料";
+    let replyMsg = count > 0 ? t('found_meetings', count) : t('not_found');
 
     let hasReset = false;
     const forceReset = () => {
-        if(!hasReset) { 
-            hasReset = true; 
-            clearHighlights(); 
-            resetTable(); 
-            resetToIdle(); 
-        }
+        if (hasReset) return;
+        hasReset = true;
+        // 還原全表顯示（翻譯模式下文字仍是英文，故回到完整英文列表）
+        clearHighlights();
+        resetTable();
+        resetToIdle();
     };
 
     updateUI('showing_results', replyMsg);
@@ -506,6 +582,15 @@ function calculateSimilarity(sourceText, keyword) {
 }
 
 // --- 表格過濾與螢光筆上色 ---
+// 取得 cell 的原始中文（翻譯模式下 innerText 是英文，比對需用 dataset.zh）
+function cellZh(cell) {
+    return (cell && cell.dataset && cell.dataset.zh !== undefined) ? cell.dataset.zh : (cell ? cell.innerText : '');
+}
+// 取得整列的原始中文（用於關鍵字比對）
+function rowZh(row) {
+    return Array.from(row.querySelectorAll('td')).map(cellZh).join(' ');
+}
+
 function filterMeetingTable(targetMinute, keyword) {
     const rows = document.querySelectorAll('.tbl-content table tbody tr');
     let matchCount = 0;
@@ -515,12 +600,12 @@ function filterMeetingTable(targetMinute, keyword) {
 
     rows.forEach(row => {
         let isMatch = false;
-        
+
         // 1. 時間比對
         if (targetMinute !== null) {
-            const timeCell = row.querySelector('td:nth-child(1)'); 
+            const timeCell = row.querySelector('td:nth-child(1)');
             if (timeCell) {
-                const parts = timeCell.innerText.trim().split('~');
+                const parts = cellZh(timeCell).trim().split('~');
                 if (parts.length >= 2) {
                     const startMin = parseTimeStr(parts[0]);
                     const endMin = parseTimeStr(parts[1]);
@@ -529,9 +614,9 @@ function filterMeetingTable(targetMinute, keyword) {
             }
         }
 
-        // 2. 關鍵字比對
+        // 2. 關鍵字比對（用原始中文）
         if (!isMatch && keyword.length > 0) {
-            const rowText = row.innerText.toLowerCase().replace(/\s/g, "");
+            const rowText = rowZh(row).toLowerCase().replace(/\s/g, "");
             
             // 茶水專用
             if (keyword.includes("茶水")) {
@@ -561,8 +646,8 @@ function filterMeetingTable(targetMinute, keyword) {
             else { row.classList.add('meeting-even'); }
             if (matchCount === 1) row.scrollIntoView({ behavior: 'smooth', block: 'center' });
             
-            // 上色
-            if (keyword.length > 0) {
+            // 上色（翻譯模式下內容是英文，中文關鍵字無法對應，故跳過）
+            if (keyword.length > 0 && !isTranslateMode) {
                 row.querySelectorAll('td').forEach(cell => {
                     const cellText = cell.innerText;
                     if (cellText.includes(keyword)) {
@@ -633,7 +718,7 @@ function resetTable() {
 function speakResult(text, callback) {
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = 'zh-TW';
+    utterance.lang = isTranslateMode ? 'en-US' : 'zh-TW';
     utterance.onend = callback;
     utterance.onerror = () => { if(callback) callback(); };
     window.speechSynthesis.speak(utterance);
@@ -643,6 +728,243 @@ function resetToIdle() {
     updateUI('listening');
     setTimeout(initRecognition, 500);
 }
+
+// ==========================================
+// 翻譯功能
+// ==========================================
+let translatedItems = []; // 記錄 { node, original } 以便還原
+let isTranslating = false; // 防止重複觸發翻譯
+
+// 翻譯模式下注入 CSS 縮小表格字體，避免英文排版爆欄
+let translateStyleEl = null;
+function applyTranslateStyle() {
+    if (translateStyleEl) return;
+    translateStyleEl = document.createElement('style');
+    translateStyleEl.id = 'translate-mode-style';
+    translateStyleEl.textContent = `
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;700&display=swap');
+        .tbl-header table th,
+        .tbl-content table td {
+            font-family: 'Noto Sans', sans-serif !important;
+            word-break: break-word !important;
+        }
+    `;
+    document.head.appendChild(translateStyleEl);
+}
+function removeTranslateStyle() {
+    if (translateStyleEl) {
+        translateStyleEl.remove();
+        translateStyleEl = null;
+    }
+}
+
+async function translateTableToEnglish() {
+    const { translateApiKey } = await chrome.storage.local.get('translateApiKey');
+    if (!translateApiKey) {
+        updateUI('error', 'No API Key — set it in extension options');
+        setTimeout(resetToIdle, 4000);
+        return;
+    }
+
+    isTranslating = true;
+    updateUI('searching', 'Translating...');
+
+    // 套用縮小字體的 CSS，避免英文排版爆欄
+    applyTranslateStyle();
+
+    // 先把全表所有 td 的原始中文備份到 dataset.zh（含時間欄、隱藏列），供搜尋比對使用
+    document.querySelectorAll('.tbl-content table tbody td').forEach(td => {
+        if (td.dataset.zh === undefined) td.dataset.zh = td.innerText;
+    });
+
+    const cells = [];
+
+    // 1. 標題列：只翻頁面標題（.tbl-title = 「本日會議」）
+    //    .logo-title 已有英文副標「Taiwan Centers for Disease Control」，直接隱藏中文文字節點即可
+    document.querySelectorAll('.logo-title').forEach(el => {
+        const firstText = el.firstChild;
+        if (firstText && firstText.nodeType === Node.TEXT_NODE && firstText.textContent.trim()) {
+            if (!translatedItems.some(item => item.node === firstText)) {
+                translatedItems.push({ node: firstText, original: firstText.textContent });
+            }
+            firstText.textContent = ''; // 隱藏中文機關名稱，保留英文副標
+        }
+    });
+    document.querySelectorAll('.tbl-title').forEach(el => {
+        if (el.innerText.trim()) cells.push(el);
+    });
+
+    // 2. 表頭欄位名稱
+    document.querySelectorAll('.tbl-header table thead th').forEach(th => {
+        if (th.innerText.trim()) cells.push(th);
+    });
+
+    // 3. 表格內容：2=名稱, 3=地點, 4=主持人, 5=備註（略過時間欄）
+    //    翻譯全部列（含目前隱藏的），這樣搜尋後顯示出來也是英文
+    document.querySelectorAll('.tbl-content table tbody tr').forEach(row => {
+        [2, 3, 4, 5].forEach(nth => {
+            const td = row.querySelector(`td:nth-child(${nth})`);
+            // 用 dataset.zh（原始中文）判斷是否有內容，避免已翻譯過的列被誤判
+            if (td && (td.dataset.zh || td.innerText).trim()) cells.push(td);
+        });
+    });
+
+    if (cells.length === 0) {
+        updateUI('showing_results', 'No content to translate');
+        setTimeout(resetToIdle, 3000);
+        return;
+    }
+
+    // 翻譯輸入一律用原始中文：文字節點用 textContent，表格 td 用 dataset.zh，其餘用 innerText
+    const getText = (el) => {
+        if (el.nodeType === Node.TEXT_NODE) return el.textContent.trim();
+        if (el.dataset && el.dataset.zh !== undefined) return el.dataset.zh.trim();
+        return el.innerText.trim();
+    };
+    const texts = cells.map(getText);
+
+    // Fallback 順序：3.1 Flash Lite → 3.1 Flash → 2.5 Flash Lite → 2.5 Flash → 2.5 Pro
+    const MODEL_FALLBACKS = [
+        { id: 'gemini-3.1-flash-lite', jsonMode: true },
+        { id: 'gemini-3.1-flash',      jsonMode: true },
+        { id: 'gemini-2.5-flash-lite', jsonMode: true },
+        { id: 'gemini-2.5-flash',      jsonMode: true },
+        { id: 'gemini-2.5-pro',        jsonMode: true },
+    ];
+
+    const prompt = `You are a translation engine. Translate each string in this JSON array from Traditional Chinese to English. ` +
+        `Keep numbers, codes, room numbers (e.g. 7F, B1F) and names as-is. ` +
+        `Output MUST be a valid JSON array of exactly ${texts.length} strings, same order. ` +
+        `Do NOT add any text, explanation, or markdown fences. Output only the raw JSON array.\n\n` +
+        JSON.stringify(texts);
+
+    const tryParse = (s) => { try { return JSON.parse(s); } catch (e) { return null; } };
+
+    const parseTranslations = (raw, expectedLen) => {
+        let cleaned = raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+        let result = tryParse(cleaned);
+        if (Array.isArray(result)) return result;
+        // 掃描所有 [...] 候選，從最後往前找長度相符的
+        const candidates = cleaned.match(/\[[^\[\]]*\]/g) || [];
+        for (let i = candidates.length - 1; i >= 0; i--) {
+            const arr = tryParse(candidates[i]);
+            if (Array.isArray(arr) && arr.length === expectedLen) return arr;
+        }
+        for (let i = candidates.length - 1; i >= 0; i--) {
+            const arr = tryParse(candidates[i]);
+            if (Array.isArray(arr)) return arr;
+        }
+        return null;
+    };
+
+    let translations = null;
+
+    try {
+        for (const model of MODEL_FALLBACKS) {
+            console.log('[語音助理] 嘗試模型：', model.id);
+            const genConfig = model.jsonMode
+                ? { temperature: 0, responseMimeType: 'application/json' }
+                : { temperature: 0 };
+
+            const resp = await fetch(
+                `https://generativelanguage.googleapis.com/v1beta/models/${model.id}:generateContent?key=${translateApiKey}`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: prompt }] }],
+                        generationConfig: genConfig
+                    })
+                }
+            );
+            const data = await resp.json();
+
+            // 429 = 用量超過，換下一個模型
+            if (resp.status === 429) {
+                console.warn('[語音助理] 模型用量已達上限，切換至下一個：', model.id);
+                continue;
+            }
+
+            if (!resp.ok || data.error) {
+                console.error('[語音助理] API 錯誤：', resp.status, JSON.stringify(data));
+                const reason = data.error ? data.error.message : `HTTP ${resp.status}`;
+                updateUI('error', 'Translate failed: ' + reason);
+                isTranslating = false;
+                setTimeout(resetToIdle, 6000);
+                return;
+            }
+
+            const raw = (data.candidates && data.candidates[0] && data.candidates[0].content
+                && data.candidates[0].content.parts && data.candidates[0].content.parts[0]
+                && data.candidates[0].content.parts[0].text) || '';
+            console.log('[語音助理] 模型回傳 (' + model.id + ')：', raw);
+
+            translations = parseTranslations(raw, texts.length);
+            if (Array.isArray(translations)) break; // 成功，跳出迴圈
+
+            console.warn('[語音助理] 解析失敗，換下一個模型');
+        }
+
+        if (!Array.isArray(translations)) {
+            console.error('[語音助理] 所有模型都失敗');
+            updateUI('error', 'Translate failed — all models exhausted');
+            isTranslating = false;
+            setTimeout(resetToIdle, 5000);
+            return;
+        }
+
+        if (!Array.isArray(translations)) {
+            console.error('[語音助理] 無法解析模型回傳：', raw);
+            updateUI('error', 'Translate failed — bad response');
+            setTimeout(resetToIdle, 5000);
+            return;
+        }
+
+        cells.forEach((el, i) => {
+            const isText = el.nodeType === Node.TEXT_NODE;
+            // 原文一律用原始中文（td 用 dataset.zh），避免重複翻譯時記到英文
+            const original = isText ? el.textContent
+                : (el.dataset && el.dataset.zh !== undefined ? el.dataset.zh : el.innerText);
+            // 記錄原文以便還原（避免重複記錄）
+            if (!translatedItems.some(item => item.node === el)) {
+                translatedItems.push({ node: el, original });
+            }
+            const translated = translations[i] || original;
+            if (isText) el.textContent = translated;
+            else el.innerText = translated;
+        });
+
+        isTranslating = false;
+        updateUI('showing_results', 'Translated');
+        // 翻完回到聆聽，讓使用者接著講「我要找會議室」
+        setTimeout(resetToIdle, 1500);
+    } catch (err) {
+        isTranslating = false;
+        console.error('[語音助理] 翻譯失敗：', err);
+        updateUI('error', 'Translation failed — check API Key');
+        setTimeout(resetToIdle, 4000);
+    }
+}
+
+function restoreOriginalText() {
+    translatedItems.forEach(({ node, original }) => {
+        if (node.nodeType === Node.TEXT_NODE) node.textContent = original;
+        else node.innerText = original;
+    });
+    translatedItems = [];
+    // 清除中文備份
+    document.querySelectorAll('.tbl-content table tbody td').forEach(td => {
+        delete td.dataset.zh;
+    });
+    // 移除翻譯模式的縮字 CSS
+    removeTranslateStyle();
+    // 還原被搜尋隱藏的列、清除螢光筆
+    clearHighlights();
+    resetTable();
+    // isTranslateMode 已為 false，更新回中文聆聽介面
+    updateUI('listening');
+}
+
 
 // ==========================================
 // 自動滾動

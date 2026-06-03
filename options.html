@@ -8,7 +8,7 @@
         .container { max-width: 500px; margin: 0 auto; background: #f9f9f9; padding: 30px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
         h1 { font-size: 24px; color: #333; margin-top: 0; }
         p { color: #666; line-height: 1.6; }
-        .btn { 
+        .btn {
             display: inline-block; padding: 12px 24px; font-size: 16px; font-weight: bold;
             color: white; background-color: #007bff; border: none; border-radius: 6px;
             cursor: pointer; transition: background 0.3s; margin-top: 15px;
@@ -16,6 +16,11 @@
         .btn:hover { background-color: #0056b3; }
         .success { color: #28a745; display: none; font-weight: bold; margin-top: 15px; }
         .error { color: #dc3545; display: none; font-weight: bold; margin-top: 15px; }
+        hr { border: none; border-top: 1px solid #ddd; margin: 25px 0; }
+        .input-group { text-align: left; margin-top: 15px; }
+        .input-group label { display: block; font-weight: bold; color: #333; margin-bottom: 6px; }
+        .input-group input { width: 100%; box-sizing: border-box; padding: 10px; font-size: 14px; border: 1px solid #ccc; border-radius: 6px; }
+        .hint { font-size: 12px; color: #999; margin-top: 6px; text-align: left; }
     </style>
 </head>
 <body>
@@ -26,9 +31,25 @@
     <p>如果您在網頁上看到「暫停服務」或「收不到聲音」，請點擊下方按鈕並選擇「允許」。</p>
     
     <button id="request-btn" class="btn">重新授予麥克風權限</button>
-    
+
     <div id="status-success" class="success">✅ 麥克風權限已取得！您現在可以關閉此頁籤。</div>
     <div id="status-error" class="error">❌ 無法取得麥克風權限，請確認系統隱私權設定。</div>
+
+    <hr>
+
+    <h1>Gemini API Key</h1>
+    <p>說「翻譯成英文」可將表格內容即時翻譯為英文。使用 Google Gemini 2.5 Flash Lite 模型。</p>
+
+    <div class="input-group">
+        <label for="translate-api-key">API Key</label>
+        <input type="text" id="translate-api-key" placeholder="貼上您的 Google AI Studio API Key">
+        <div class="hint">在 <a href="https://aistudio.google.com/app/apikey" target="_blank">Google AI Studio</a> 免費取得 API Key。</div>
+    </div>
+
+    <button id="save-api-key-btn" class="btn">儲存 API Key</button>
+
+    <div id="api-key-success" class="success">✅ API Key 已儲存！</div>
+    <div id="api-key-error" class="error">❌ 儲存失敗，請重試。</div>
 </div>
 
 <script src="options.js"></script>
