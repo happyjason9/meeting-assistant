@@ -967,63 +967,8 @@ function restoreOriginalText() {
 
 
 // ==========================================
-// 自動滾動
+// 自動滾動由 redesign.js 接管，此處只確保原站的滾動速度設定維持關閉
 // ==========================================
-let scrollDirection = 1;
-let isPausing = false;
-let frameCount = 0; 
-
-function initSafeScroll() {
-    const nativeScrollSelect = document.getElementById('ScrollSpeed');
-    if (nativeScrollSelect) {
-        nativeScrollSelect.value = "0";
-        nativeScrollSelect.dispatchEvent(new Event('change', { bubbles: true }));
-    }
-    requestAnimationFrame(customScrollLoop);
-}
-
-function customScrollLoop() {
-    if (currentState !== 'listening' && currentState !== 'idle') {
-        requestAnimationFrame(customScrollLoop);
-        return;
-    }
-    if (isPausing) {
-        requestAnimationFrame(customScrollLoop);
-        return;
-    }
-
-    frameCount++;
-    if (frameCount % 2 !== 0) {
-        requestAnimationFrame(customScrollLoop);
-        return;
-    }
-
-    const target = document.getElementById('tbl-content');
-    if (target) {
-        target.scrollTop += (1 * scrollDirection);
-
-        if (scrollDirection === 1) { 
-            if (target.scrollTop + target.clientHeight >= target.scrollHeight - 50) {
-                triggerTurnAround(-1);
-            }
-        } 
-        else { 
-            if (target.scrollTop <= 0) {
-                triggerTurnAround(1);
-            }
-        }
-    }
-    requestAnimationFrame(customScrollLoop);
-}
-
-function triggerTurnAround(newDirection) {
-    isPausing = true;
-    setTimeout(() => {
-        scrollDirection = newDirection;
-        isPausing = false;
-    }, 2000); 
-}
-
 setInterval(() => {
     const nativeScrollSelect = document.getElementById('ScrollSpeed');
     if (nativeScrollSelect && nativeScrollSelect.value !== "0") {
@@ -1033,5 +978,4 @@ setInterval(() => {
 }, 5000);
 
 setTimeout(initRecognition, 500);
-setTimeout(initSafeScroll, 1000);
 overlay.addEventListener('click', initRecognition);

@@ -24,6 +24,26 @@
                 "pinyin-pro.js",
                 "content.js"
             ]
+        },
+        {
+            "matches": [
+                "https://meeting.cdc.gov.tw/*"
+            ],
+            "css": [
+                "style.css"
+            ],
+            "js": [
+                "redesign.js"
+            ]
+        }
+    ],
+    "web_accessible_resources": [
+        {
+            "resources": [
+                "assets/font/Iansui-Regular.ttf",
+                "assets/icons/icon-svg/*.svg"
+            ],
+            "matches": ["https://meeting.cdc.gov.tw/*"]
         }
     ]
 }

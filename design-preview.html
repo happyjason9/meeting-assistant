@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>本日會議 — 新版設計預覽</title>
+<link href="style.css" rel="stylesheet">
+<style>
+/* ===== 預覽專用：模擬原站 bootstrap / Meeting.css 的必要基礎，正式版不會用到 ===== */
+* { margin: 0; box-sizing: border-box; }
+button { cursor: pointer; }
+table { width: 100%; table-layout: fixed; border-collapse: collapse; }
+th, td { text-align: center; vertical-align: middle; white-space: pre-wrap; }
+.title-bar { position: relative; height: 80px; }
+.options { position: absolute; left: 8px; top: 50%; transform: translateY(-50%); }
+.options button { width: 40px; height: 40px; border: none; background: transparent; font-size: 22px; }
+.logo { position: absolute; left: 60px; top: 50%; transform: translateY(-50%); width: 56px; height: 56px;
+        border-radius: 50%; background: #e6f6ec; display: flex; align-items: center; justify-content: center; font-size: 30px; }
+.logo::after { content: "🏥"; }
+.logo-title { position: absolute; left: 132px; top: 50%; transform: translateY(-50%); font-weight: bold; text-align: left; }
+.tbl-title { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); font-weight: bold; }
+.today { position: fixed; top: 60px; right: 28px; font-weight: bold; }
+.tbl-content { overflow-x: auto; overflow-y: auto; }
+.text-center { text-align: center; }
+.btn-link { background: none; border: none; }
+.modal { display: none; } /* 預覽不含 bootstrap JS，先隱藏 modal */
+</style>
+</head>
+<body>
+    <div class="title-bar">
+        <div class="options">
+            <button type="button" data-toggle="modal" data-target="#options">☰</button>
+        </div>
+        <div class="logo"></div>
+        <div class="logo-title">衛生福利部疾病管制署<br><span>Taiwan Centers for Disease Control</span></div>
+        <div class="tbl-title">本日會議</div>
+        <div class="today">2026 年 07 月 13 日</div>
+    </div>
+
+    <div class="tbl-header">
+        <table>
+            <thead>
+                <tr>
+                    <th class="text-center" style="width:15%">會議時間</th>
+                    <th class="text-center" style="width:25%">會議名稱</th>
+                    <th class="text-center" style="width:10%">會議地點</th>
+                    <th class="text-center" style="width:10%">主持人</th>
+                    <th class="text-center" style="width:10%">承辦單位</th>
+                    <th class="text-center" style="width:7%">承辦人</th>
+                    <th class="text-center" style="width:10%">備註</th>
+                    <th class="text-center" style="width:5%">視訊連線</th>
+                </tr>
+            </thead>
+        </table>
+    </div>
+    <div class="tbl-content" id="tbl-content">
+        <table>
+            <tbody>
+                <tr>
+                    <td class="text-center" style="width:15%"> 08:30 ~  09:00</td>
+                    <td class="text-center" style="width:25%">晨間會議</td>
+                    <td class="text-center" style="width:10%">7F協調指揮中心(不開放外機關借用)</td>
+                    <td class="text-center" style="width:10%">郭 主任 宏偉</td>
+                    <td class="text-center" style="width:10%">疫情中心</td>
+                    <td class="text-center" style="width:7%">何佩臻</td>
+                    <td class="text-center" style="width:10%"></td>
+                    <td class="text-center" style="width:5%"><button class="btn btn-link btn-video">📹</button></td>
+                </tr>
+                <tr>
+                    <td class="text-center" style="width:15%"> 08:30 ~  10:30</td>
+                    <td class="text-center" style="width:25%">愛滋科技計畫期中審查會議</td>
+                    <td class="text-center" style="width:10%">7F大幕僚討論室(不開放外機關借用)</td>
+                    <td class="text-center" style="width:10%">李 組長 佳琪</td>
+                    <td class="text-center" style="width:10%">慢性傳染病組</td>
+                    <td class="text-center" style="width:7%">賴思羽</td>
+                    <td class="text-center" style="width:10%">cdcmeet1</td>
+                    <td class="text-center" style="width:5%"></td>
+                </tr>
+                <tr>
+                    <td class="text-center" style="width:15%"> 09:00 ~  12:00</td>
+                    <td class="text-center" style="width:25%">115年疫苗接種行政電子化系統(NIAS)長照機構子系統教育訓練</td>
+                    <td class="text-center" style="width:10%">1F會議室</td>
+                    <td class="text-center" style="width:10%">盛 技士 柏淵</td>
+                    <td class="text-center" style="width:10%">新興傳染病整備組</td>
+                    <td class="text-center" style="width:7%">盛柏淵</td>
+                    <td class="text-center" style="width:10%">Webex視訊，會議號：2519 193 1984、密碼：meet@0713，當日請署內工程師協助確認視訊連線事宜，謝謝!</td>
+                    <td class="text-center" style="width:5%"><button class="btn btn-link btn-video">📹</button></td>
+                </tr>
+                <tr>
+                    <td class="text-center" style="width:15%"> 09:30 ~  11:30</td>
+                    <td class="text-center" style="width:25%">業務討論</td>
+                    <td class="text-center" style="width:10%">3F會議室</td>
+                    <td class="text-center" style="width:10%">池 組長 宜倩</td>
+                    <td class="text-center" style="width:10%">新興傳染病整備組</td>
+                    <td class="text-center" style="width:7%">蕭詠尹</td>
+                    <td class="text-center" style="width:10%"></td>
+                    <td class="text-center" style="width:5%"></td>
+                </tr>
+                <tr>
+                    <td class="text-center" style="width:15%"> 10:00 ~  12:00</td>
+                    <td class="text-center" style="width:25%">SMIS工作小組會議</td>
+                    <td class="text-center" style="width:10%">7F小幕僚討論室(不開放外機關借用)</td>
+                    <td class="text-center" style="width:10%">鄭 設計師 聲和</td>
+                    <td class="text-center" style="width:10%">資訊室</td>
+                    <td class="text-center" style="width:7%">鄭聲和</td>
+                    <td class="text-center" style="width:10%"></td>
+                    <td class="text-center" style="width:5%"></td>
+                </tr>
+                <tr>
+                    <td class="text-center" style="width:15%"> 10:00 ~  12:00</td>
+                    <td class="text-center" style="width:25%">115年第7次庫賈氏病病審會(預備時間)</td>
+                    <td class="text-center" style="width:10%">7F協調指揮中心(不開放外機關借用)</td>
+                    <td class="text-center" style="width:10%">張楊全教授</td>
+                    <td class="text-center" style="width:10%">急性傳染病組</td>
+                    <td class="text-center" style="width:7%">吳姿葶</td>
+                    <td class="text-center" style="width:10%">google meet</td>
+                    <td class="text-center" style="width:5%"></td>
+                </tr>
+                <tr>
+                    <td class="text-center" style="width:15%"> 14:00 ~  15:30</td>
+                    <td class="text-center" style="width:25%">疫情防治週報</td>
+                    <td class="text-center" style="width:10%">7F協調指揮中心(不開放外機關借用)</td>
+                    <td class="text-center" style="width:10%">曾 副署長 淑慧</td>
+                    <td class="text-center" style="width:10%">疫情中心</td>
+                    <td class="text-center" style="width:7%">何佩臻</td>
+                    <td class="text-center" style="width:10%">縣市連Webex</td>
+                    <td class="text-center" style="width:5%"><button class="btn btn-link btn-video">📹</button></td>
+                </tr>
+                <tr>
+                    <td class="text-center" style="width:15%"> 15:00 ~  16:00</td>
+                    <td class="text-center" style="width:25%">第八屆第七次勞工退休準備金監督委員會</td>
+                    <td class="text-center" style="width:10%">1F會議室</td>
+                    <td class="text-center" style="width:10%">鄧 主任秘書 如秀</td>
+                    <td class="text-center" style="width:10%">秘書室</td>
+                    <td class="text-center" style="width:7%">楊昇烜</td>
+                    <td class="text-center" style="width:10%"></td>
+                    <td class="text-center" style="width:5%"><button class="btn btn-link btn-video">📹</button></td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+    <script src="redesign.js"></script>
+</body>
+</html>

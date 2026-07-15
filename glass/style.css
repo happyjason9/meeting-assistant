@@ -1,0 +1,528 @@
+/* ==========================================================================
+   會議看板重新設計樣式 — Liquid Glass（淡色版，仿 Apple 液態玻璃）
+   （由 extension content script 注入，覆蓋原站 Meeting.css）
+   特徵：柔和淡色背景、真毛玻璃卡片（backdrop-filter 模糊 + 高透明白 + 細白高光邊），
+         深色文字維持可讀性，顏色只用於狀態點/進行中提示
+   注意：只改外觀，不動 DOM 結構 / id / class / onclick（見 docs/功能保留清單.md）
+   ========================================================================== */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&family=Orbitron:wght@700&display=swap');
+
+/* 供邊框流光動畫使用的可動畫角度屬性 */
+@property --angle {
+    syntax: "<angle>";
+    initial-value: 0deg;
+    inherits: false;
+}
+
+:root {
+    --bg: #e9ebf2;                               /* 柔和淡灰藍底色 */
+    --bg-grad: linear-gradient(160deg, #eef0f6 0%, #e3e6f0 50%, #dbdfec 100%);
+    --card: rgba(255, 255, 255, 0.55);           /* 玻璃卡片底：高透明白 */
+    --card-strong: rgba(255, 255, 255, 0.75);
+    --ink: #1e2140;                              /* 深藍黑主文字 */
+    --ink-secondary: #6b6f8a;                    /* 次要文字：藍灰 */
+    --ink-tertiary: #9a9dc2;
+    --accent: #5b63d3;                           /* 主藍紫 */
+    --accent-bright: #4046b8;                    /* 深藍紫（時間、重點） */
+    --accent-grad: linear-gradient(135deg, #6d74e0, #5b63d3);
+    --glass-border: rgba(255, 255, 255, 0.6);    /* 玻璃高光邊 */
+    --glow: none;
+    --radius: 20px;
+    --radius-sm: 14px;
+}
+
+body, html {
+    background: var(--bg-grad) !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Manrope",
+                 "Helvetica Neue", "Noto Sans TC", "微軟正黑體", "Microsoft JhengHei", sans-serif !important;
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+    /* 雙層架構：title-bar + tbl-header 固定不動，只有 .tbl-content 可以捲動。
+       body 用 flex column 直向排列這三塊，.tbl-content 撐滿剩餘空間並自帶捲動 */
+    height: 100vh !important;
+    overflow: hidden !important;
+    display: flex !important;
+    flex-direction: column !important;
+}
+
+/* --------------------------------------------------------------------------
+   頂部標題列：淡色毛玻璃工具列
+   -------------------------------------------------------------------------- */
+
+.title-bar {
+    background: rgba(255, 255, 255, 0.45) !important;
+    -webkit-backdrop-filter: blur(24px) saturate(160%);
+    backdrop-filter: blur(24px) saturate(160%);
+    border-radius: 0 !important;
+    border-bottom: 1px solid var(--glass-border);
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.6) inset;
+    /* 頁面本身不捲動（body overflow:hidden），維持原本文件流位置即可，不需要 sticky */
+    flex: 0 0 auto;
+    z-index: 10;
+}
+
+.logo-title {
+    color: var(--ink) !important;
+    font-size: 21px !important;
+    font-weight: 600 !important;
+    /* 原站 Meetings.css 對 .logo-title 直接指定了 '微軟正黑體'，
+       同特異性規則靠 !important 才能穩定蓋過，不能只靠繼承 */
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Manrope",
+                 "Helvetica Neue", "Noto Sans TC", "微軟正黑體", "Microsoft JhengHei", sans-serif !important;
+    letter-spacing: -0.01em;
+    left: 130px !important; /* 貼近縮小後的 logo（logo 於 60px 起、56px 寬） */
+}
+
+    .logo-title span {
+        color: var(--ink-secondary) !important;
+        font-size: 15px !important;
+        font-weight: 500 !important;
+        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Manrope",
+                     "Helvetica Neue", "Noto Sans TC", "微軟正黑體", "Microsoft JhengHei", sans-serif !important;
+        letter-spacing: 0.02em;
+    }
+
+/* 中央標題：深藍紫，維持與卡片一致的沉穩色調 */
+.tbl-title {
+    font-size: 24px !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.02em;
+    color: var(--accent-bright) !important;
+    text-shadow: none;
+}
+
+/* 日期：玻璃藥丸標籤 */
+.today {
+    color: var(--accent-bright) !important;
+    background: rgba(255, 255, 255, 0.6);
+    border: 1px solid var(--glass-border);
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
+    font-size: 15px !important;
+    font-weight: 600 !important;
+    padding: 6px 16px;
+    border-radius: 999px;
+    top: 26px !important;
+    right: 24px !important;
+    box-shadow: 0 2px 8px rgba(30, 33, 64, 0.08);
+}
+
+/* 署徽：保持原色，白色圓形基座 + 玻璃高光邊 */
+.logo {
+    width: 56px !important;
+    height: 56px !important;
+    background-color: #ffffff;
+    border-radius: 50%;
+    box-shadow: 0 0 0 1px var(--glass-border),
+                0 2px 8px rgba(30, 33, 64, 0.10);
+}
+
+/* 選單按鈕：原站圖示本身是深色，淡色底不需要反白 */
+.options button {
+    border-radius: 10px !important;
+    transition: background 0.15s ease;
+}
+
+    .options button:hover {
+        background-color: rgba(255, 255, 255, 0.5) !important;
+    }
+
+/* --------------------------------------------------------------------------
+   表頭：融入藍紫底，白字小標籤
+   -------------------------------------------------------------------------- */
+
+.tbl-header {
+    /* 頁面本身不捲動，維持原本文件流位置即可，不需要 sticky */
+    flex: 0 0 auto;
+    z-index: 9;
+    background: transparent !important;
+    border-radius: 0 !important;
+    border-bottom: none;
+    margin-top: 0 !important;
+    /* !important 蓋掉原站 JS 塞的 padding-right 滾動條補償，
+       表頭與內容容器必須同寬，欄寬 % 才會對齊 */
+    padding: 0 20px !important;
+}
+
+th {
+    color: var(--ink-secondary) !important;
+    font-size: 14px !important;
+    font-weight: 600 !important;
+    /* 英文/數字比照時間欄用 Orbitron，中文走 Manrope/Noto Sans TC fallback */
+    font-family: "Orbitron", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Manrope",
+                 "Helvetica Neue", "Noto Sans TC", "微軟正黑體", "Microsoft JhengHei", sans-serif;
+    padding: 14px 8px 8px !important;
+    border: none !important;
+    border-radius: 0 !important;
+    letter-spacing: 0.08em;
+    text-shadow: none;
+}
+
+/* --------------------------------------------------------------------------
+   會議列表：Liquid Glass 卡片（真毛玻璃：高透明白 + backdrop-filter 模糊 + 高光邊）
+   -------------------------------------------------------------------------- */
+
+.tbl-content {
+    /* 雙層架構：title-bar / tbl-header 固定不動，這裡是唯一可捲動的區域，
+       撐滿 body flex 容器的剩餘空間（flex:1 1 auto，配合 min-height:0
+       讓 flex item 能正確縮到比內容還小、才會出現內部滾動條） */
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    border: none !important;
+    padding: 0 20px;
+}
+
+    /* 看板不需要顯示內容區滾動條（自動滾動仍可運作），
+       同時避免滾動條吃寬度造成表頭/內容欄位錯位 */
+    .tbl-content::-webkit-scrollbar {
+        display: none;
+    }
+
+/* --------------------------------------------------------------------------
+   列改用 flex 排版：欄寬仍吃原本的 inline width:%（表頭同步），
+   目的是讓 tr 能掛 ::before 畫「繞邊流光」光環
+   -------------------------------------------------------------------------- */
+
+.tbl-header table, .tbl-header thead,
+.tbl-content table {
+    display: block !important;
+}
+
+/* tbody 用 grid 排列各列，row-gap 做卡片間距 —— gap 屬於內容高度，
+   會被正確算進 scrollHeight（margin 不會），原站的自動滾動才能真正滾到底。
+   padding-bottom 是列表底部留白（同樣算在 scrollHeight 內，取代容器 padding） */
+.tbl-content tbody {
+    display: grid !important;
+    row-gap: 18px;
+    padding-bottom: 20px;
+}
+
+/* 表頭列與內容列共用同一組隱形格線（grid-template-columns 由 redesign.js
+   依表頭欄寬比例產生並套到每一列），格線位置一致 → 欄位必然對齊 */
+.tbl-header thead tr,
+.tbl-content tbody tr {
+    display: grid !important;
+    align-items: stretch;
+}
+
+th, .tbl-content td {
+    box-sizing: border-box;
+    /* 欄寬交給 grid 格線控制，忽略 inline width，長文字也撐不開自己的欄 */
+    width: auto !important;
+    min-width: 0;
+}
+
+/* 儲存格內容置中（原本靠 table 的 vertical-align:middle） */
+.tbl-content td {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+}
+
+/* 卡片間距由 tbody 的 row-gap 提供（margin 不列入 scrollHeight，勿用） */
+.tbl-content tbody tr {
+    position: relative;
+}
+
+/* 取消原本的斑馬紋 */
+.tbl-content tr:nth-child(2n+1) {
+    background-color: transparent !important;
+}
+
+/* --------------------------------------------------------------------------
+   與 content.js 語音搜尋相容：
+   - .meeting-hidden 的 display:none 必須贏過上面的 display:flex
+   - .meeting-odd/.meeting-even（搜尋命中列）用淡紫底 + 紫邊標示命中
+   -------------------------------------------------------------------------- */
+
+.tbl-content tbody tr.meeting-hidden {
+    display: none !important;
+}
+
+.tbl-content tbody tr.meeting-odd,
+.tbl-content tbody tr.meeting-even {
+    background: rgba(255, 255, 255, 0.75) !important;
+    box-shadow: 0 0 0 1.5px var(--accent),
+                inset 0 1px 0 rgba(255, 255, 255, 0.8),
+                0 8px 20px rgba(30, 33, 64, 0.10) !important;
+}
+
+/* 繞邊流光：只在「進行中」的會議列上跑（.meeting-now 由 redesign.js
+   比對會議時間與現在時間後加上），旋轉 conic-gradient 光環，遮罩留 2px 邊框環 */
+.tbl-content tbody tr.meeting-now::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: var(--radius);
+    padding: 2px;
+    background: conic-gradient(from var(--angle),
+        transparent 0%,
+        transparent 75%,
+        color-mix(in srgb, var(--a, var(--accent)) 55%, transparent) 86%,
+        var(--a, var(--accent)) 94%,
+        transparent 100%);
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    mask-composite: exclude;
+    pointer-events: none;
+    z-index: 1;
+    animation: border-beam 6s linear infinite;
+}
+
+@keyframes border-beam {
+    to { --angle: 360deg; }
+}
+
+/* 進行中的會議：邊框加粗提亮 + 陰影加強，跟流光相互呼應 */
+.tbl-content tbody tr.meeting-now {
+    box-shadow: 0 0 0 1.5px var(--a, var(--accent)),
+                inset 0 1px 0 rgba(255, 255, 255, 0.8),
+                0 10px 24px rgba(30, 33, 64, 0.14) !important;
+}
+
+/* Liquid Glass 卡片：真毛玻璃——高透明白底 + backdrop-filter 模糊背景，
+   細白高光邊模擬玻璃邊緣折射，陰影營造浮起層次 */
+.tbl-content tbody tr {
+    background: rgba(255, 255, 255, 0.55);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    backdrop-filter: blur(20px) saturate(180%);
+    border-radius: var(--radius);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7),
+                inset 0 0 0 1px rgba(255, 255, 255, 0.4),
+                0 6px 16px rgba(30, 33, 64, 0.08);
+    transition: box-shadow 0.15s ease, transform 0.15s ease, background 0.15s ease;
+}
+
+.tbl-content tbody tr.meeting-soon,
+.tbl-content tbody tr.meeting-past {
+    box-shadow: 0 0 0 1.5px var(--a, var(--accent)),
+                inset 0 1px 0 rgba(255, 255, 255, 0.7),
+                0 8px 18px rgba(30, 33, 64, 0.10) !important;
+}
+
+    .tbl-content tbody tr:hover {
+        background: rgba(255, 255, 255, 0.7);
+        transform: translateY(-2px);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8),
+                    inset 0 0 0 1px rgba(255, 255, 255, 0.5),
+                    0 10px 22px rgba(30, 33, 64, 0.12);
+    }
+
+/* 卡片邊框色依會議狀態決定（與圓點狀態同步）：
+   還沒開＝不上色、即將開始＝洋紅、進行中＝粉、已結束＝紫 */
+.tbl-content tbody tr.meeting-soon { --a: #d946ef; } /* 洋紅：即將開始 */
+.tbl-content tbody tr.meeting-now { --a: #ec4899; } /* 粉：進行中 */
+.tbl-content tbody tr.meeting-past { --a: #a855f7; } /* 紫：已結束 */
+
+.tbl-content td {
+    background: transparent !important;
+    border: none !important;
+    padding: 18px 8px !important;
+    font-size: 19px !important;
+    color: var(--ink) !important;
+    line-height: 1.5;
+    letter-spacing: -0.01em;
+}
+
+    /* 時間欄：深紫大字，與整列同一片白玻璃、不另做色塊
+       數位時鐘風格字體（Orbitron），顏色/大小/粗度維持不變 */
+    .tbl-content td:first-child {
+        color: var(--accent-bright) !important;
+        font-size: 22px !important;
+        font-weight: 700;
+        font-family: "Orbitron", "Inter", sans-serif;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: 0.02em;
+        text-shadow: none;
+    }
+
+    /* 會議名稱：主角，加大加亮 + 主題色圓點，格內靠左對齊
+       英文/數字比照時間欄用 Orbitron，中文仍走後面的 Manrope/Noto Sans TC fallback */
+    .tbl-content td:nth-child(2) {
+        font-weight: 700;
+        font-size: 21px !important;
+        color: var(--ink) !important;
+        font-family: "Orbitron", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Manrope",
+                     "Helvetica Neue", "Noto Sans TC", "微軟正黑體", "Microsoft JhengHei", sans-serif;
+        justify-content: flex-start;
+        text-align: left;
+        padding-left: 20px !important;
+        letter-spacing: 0.2em;
+        /* 避免換行後最後一行只剩一兩個字（孤字），瀏覽器自動選較均衡的斷行點 */
+        text-wrap: pretty;
+    }
+
+        /* 狀態圓點：灰＝尚未開始、黃＝即將開始（15分鐘內，.meeting-soon，快速閃爍）、
+           綠＝進行中（.meeting-now，呼吸閃爍）、紅＝已結束（.meeting-past），
+           皆由 redesign.js 比對會議時間與現在時間決定 */
+        .tbl-content td:nth-child(2)::before {
+            content: "";
+            display: inline-block;
+            width: 11px;
+            height: 11px;
+            flex: 0 0 auto;
+            border-radius: 50%;
+            background: #c7c7cf;
+            margin-right: 10px;
+        }
+
+        .tbl-content tr.meeting-soon td:nth-child(2)::before {
+            background: #eab308;
+        }
+
+        .tbl-content tr.meeting-now td:nth-child(2)::before {
+            background: #22c55e;
+            animation: dot-pulse 2.4s ease-in-out infinite;
+        }
+
+        .tbl-content tr.meeting-past td:nth-child(2)::before {
+            background: #ef4444;
+        }
+
+/* 綠點低頻呼吸閃爍：亮 → 暗 → 亮，2.4 秒一循環 */
+@keyframes dot-pulse {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.4;
+    }
+}
+
+    /* 次要欄位（會議地點、主持人、承辦單位...） */
+    .tbl-content td:nth-child(3),
+    .tbl-content td:nth-child(n+4) {
+        color: var(--ink-secondary) !important;
+        font-weight: 500;
+        font-size: 16px !important;
+        font-family: "Orbitron", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Manrope",
+                     "Helvetica Neue", "Noto Sans TC", "微軟正黑體", "Microsoft JhengHei", sans-serif;
+    }
+
+/* 視訊按鈕：極簡圓形按鈕 */
+.btn-video {
+    font-size: 18px !important;
+    background: #f5f5f7 !important;
+    border: 1px solid var(--glass-border) !important;
+    border-radius: 999px !important;
+    width: 40px;
+    height: 40px;
+    padding: 0 !important;
+    transition: background 0.15s ease;
+}
+
+    .btn-video:hover {
+        background: #ececf0 !important;
+    }
+
+/* --------------------------------------------------------------------------
+   捲軸：灰色細捲軸
+   -------------------------------------------------------------------------- */
+
+::-webkit-scrollbar {
+    width: 8px;
+}
+
+html::-webkit-scrollbar,
+::-webkit-scrollbar-track {
+    -webkit-box-shadow: none !important;
+    background: transparent !important;
+}
+
+html::-webkit-scrollbar-thumb,
+::-webkit-scrollbar-thumb {
+    -webkit-box-shadow: none !important;
+    background: #d4d4d9 !important;
+    border-radius: 4px;
+}
+
+/* --------------------------------------------------------------------------
+   Modal：白玻璃面板 + 紫色漸層主按鈕
+   -------------------------------------------------------------------------- */
+
+.modal-content {
+    background: #ffffff !important;
+    border: 1px solid var(--glass-border) !important;
+    border-radius: 16px !important;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.12) !important;
+    color: var(--ink) !important;
+}
+
+.modal-header {
+    border-bottom: 1px solid var(--glass-border) !important;
+    padding: 20px 24px !important;
+}
+
+.modal-title {
+    color: var(--ink) !important;
+    font-size: 20px !important;
+    font-weight: 700 !important;
+}
+
+.modal-body label {
+    color: var(--ink-secondary) !important;
+    font-weight: 500;
+    font-size: 15px;
+}
+
+.modal-body select.form-control {
+    background-color: rgba(255, 255, 255, 0.9) !important;
+    color: var(--ink) !important;
+    border: 1px solid var(--glass-border) !important;
+    border-radius: var(--radius-sm) !important;
+    box-shadow: none !important;
+}
+
+    .modal-body select.form-control:focus {
+        border-color: var(--accent) !important;
+        box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.18) !important;
+    }
+
+.modal-footer {
+    border-top: 1px solid var(--glass-border) !important;
+    padding: 16px 24px !important;
+}
+
+
+/* 送出按鈕：純紫色藥丸（id 不可動，只改外觀） */
+#btn-select-host {
+    background: var(--accent) !important;
+    border: none !important;
+    border-radius: 999px !important;
+    padding: 9px 26px !important;
+    font-weight: 600;
+    font-size: 15px;
+    box-shadow: none;
+    transition: background 0.15s ease;
+}
+
+    #btn-select-host:hover {
+        background: var(--accent-bright) !important;
+    }
+
+/* pretty-checkbox：紫色勾選 */
+.pretty input:checked ~ .state.p-primary label:after,
+.pretty.p-toggle .state.p-primary label:after {
+    background: var(--accent) !important;
+    box-shadow: none;
+}
+
+.pretty .state.p-primary label:before {
+    border-color: var(--glass-border) !important;
+    background: #ffffff;
+    border-radius: 7px;
+}
+
+/* modal 內文字整體提亮（原站 bootstrap 預設深色字在深底上看不見） */
+.modal-content,
+.modal-content p,
+.modal-content .container-fluid {
+    color: var(--ink) !important;
+}
