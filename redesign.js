@@ -160,6 +160,8 @@
             // 原站用 white-space: pre-wrap 呈現，多個項目其實是同一個文字節點
             // 內用 \n 換行分隔（不是 <br> 標籤），所以要用 textContent 依 \n 分行
             const lines = cell.textContent.split(/\r\n|\r|\n/);
+            // 換成圖示前先保留原始文字，供語音搜尋比對用（否則 innerText 只剩圖示 alt）
+            if (cell.dataset.zh === undefined) cell.dataset.zh = cell.textContent;
             cell.innerHTML = '';
             cell.classList.add('prep-icons');
 
