@@ -366,7 +366,6 @@ th, .tbl-content td {
     padding: 18px 8px !important;
     font-size: 19px !important;
     color: var(--ink) !important;
-    line-height: 2.0;
     letter-spacing: -0.01em;
 }
 
@@ -381,6 +380,7 @@ th, .tbl-content td {
         font-family: "Orbitron", "Iansui", "Inter", sans-serif;
         font-variant-numeric: tabular-nums;
         letter-spacing: 0.02em;
+        line-height: 2.0;
         text-shadow: none;
     }
 
@@ -397,6 +397,7 @@ th, .tbl-content td {
         text-align: left;
         padding-left: 20px !important;
         letter-spacing: 0.2em;
+        line-height: 2.0;
         /* 避免換行後最後一行只剩一兩個字（孤字），瀏覽器自動選較均衡的斷行點 */
         text-wrap: pretty;
     }
@@ -452,6 +453,7 @@ th, .tbl-content td {
         font-weight: 450;
         font-size: 24px !important;
         letter-spacing: 0.1em;
+        line-height: 1.5;
         font-family: "Orbitron", "Iansui", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Manrope",
                      "Helvetica Neue", "Noto Sans TC", "微軟正黑體", "Microsoft JhengHei", sans-serif;
     }
@@ -603,7 +605,7 @@ html::-webkit-scrollbar-thumb,
 }
 
 /* --------------------------------------------------------------------------
-   空狀態畫面：今日會議全部結束後，用賽博紅色方塊矩陣取代空白捲動區
+   空狀態畫面：今日會議全部結束後，用一張置中圖片取代空白捲動區
    （由 redesign.js 的 setEmptyState() 動態插入/顯示，預設 display:none）
    -------------------------------------------------------------------------- */
 
@@ -615,99 +617,11 @@ html::-webkit-scrollbar-thumb,
     align-items: center;
     justify-content: center;
     overflow: hidden;
-    background: radial-gradient(ellipse 70% 60% at 50% 40%, rgba(160, 0, 20, 0.4), transparent 70%);
-    perspective: 1000px;
 }
 
-.cyber-grid {
-    position: relative;
-    width: min(80vw, 900px);
-    height: min(50vw, 480px);
-    transform-style: preserve-3d;
-}
-
-/* 每個方塊是絕對定位的容器，負責「在畫面裡漂浮」；
-   內層 .cube 才負責「立方體本身自轉」，兩層動畫互不干擾，疊加起來才會
-   同時有位移飄動感 + 旋轉感。position/duration/delay 由 JS 隨機出的
-   inline style 決定，讓每顆方塊節奏都不同步。 */
-.cyber-float {
-    position: absolute;
-    transform-style: preserve-3d;
-    animation-name: cyber-float;
-    animation-timing-function: ease-in-out;
-    animation-iteration-count: infinite;
-}
-
-.cube {
-    position: relative;
-    width: 100%;
-    height: 100%;
-    transform-style: preserve-3d;
-    animation-name: cyber-spin;
-    animation-timing-function: linear;
-    animation-iteration-count: infinite;
-}
-
-.cube .face {
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(160deg, rgba(255, 0, 30, 0.55), rgba(255, 0, 30, 0.18));
-    border: 1.5px solid rgba(255, 40, 60, 0.9);
-    box-shadow: 0 0 18px rgba(255, 0, 30, 0.5), inset 0 0 14px rgba(255, 60, 80, 0.35);
-}
-
-/* 6 面立方體：每面往外推出半個邊長，做出真正的立體厚度 */
-.cube .face--front  { transform: translateZ(calc(var(--size) / 2)); }
-.cube .face--back   { transform: rotateY(180deg) translateZ(calc(var(--size) / 2)); }
-.cube .face--right  { transform: rotateY(90deg) translateZ(calc(var(--size) / 2)); }
-.cube .face--left   { transform: rotateY(-90deg) translateZ(calc(var(--size) / 2)); }
-.cube .face--top    { transform: rotateX(90deg) translateZ(calc(var(--size) / 2)); }
-.cube .face--bottom { transform: rotateX(-90deg) translateZ(calc(var(--size) / 2)); }
-
-/* 漂浮：在 3D 空間裡緩慢移動位置（含 Z 軸深淺變化），來回飄不固定在原地 */
-@keyframes cyber-float {
-    0%   { transform: translate3d(0, 0, 0); }
-    25%  { transform: translate3d(var(--float-x), calc(var(--float-y) * -1), var(--float-z)); }
-    50%  { transform: translate3d(calc(var(--float-x) * -0.6), calc(var(--float-y) * 0.4), calc(var(--float-z) * -1)); }
-    75%  { transform: translate3d(calc(var(--float-x) * 0.5), var(--float-y), calc(var(--float-z) * 0.5)); }
-    100% { transform: translate3d(0, 0, 0); }
-}
-
-/* 自轉：立方體本身持續繞不同軸旋轉一整圈 */
-@keyframes cyber-spin {
-    from { transform: rotateX(0deg) rotateY(0deg) rotateZ(0deg); }
-    to   { transform: rotateX(360deg) rotateY(360deg) rotateZ(180deg); }
-}
-
-/* 掃描線：一條紅色亮線由上往下緩慢掃過整個空狀態區域 */
-.cyber-scanline {
-    position: absolute;
-    left: 0;
-    right: 0;
-    top: 0;
-    height: 2px;
-    background: linear-gradient(90deg, transparent, rgba(255, 0, 30, 1), transparent);
-    box-shadow: 0 0 20px rgba(255, 0, 30, 0.9);
-    animation: cyber-scan 5s linear infinite;
-    pointer-events: none;
-}
-
-@keyframes cyber-scan {
-    0% { top: 0%; opacity: 0; }
-    10% { opacity: 1; }
-    90% { opacity: 1; }
-    100% { top: 100%; opacity: 0; }
-}
-
-.cyber-message {
-    position: absolute;
-    bottom: 14%;
-    left: 50%;
-    transform: translateX(-50%);
-    color: #ff2030;
-    font-size: 20px;
-    font-weight: 700;
-    letter-spacing: 0.15em;
-    text-shadow: 0 0 18px rgba(255, 0, 30, 0.9);
-    white-space: nowrap;
+.empty-state-img {
+    max-width: 60%;
+    max-height: 70%;
+    object-fit: contain;
+    filter: drop-shadow(0 0 30px rgba(168, 85, 247, 0.35));
 }

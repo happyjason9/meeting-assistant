@@ -206,7 +206,7 @@
         const nowMins = now.getHours() * 60 + now.getMinutes();
 
         const rows = Array.from(content.querySelectorAll('tbody tr'));
-        let allPast = rows.length > 0;
+        let allPast = true;
 
         rows.forEach(function (row) {
             const cell = row.cells && row.cells[0];
@@ -229,81 +229,25 @@
             if (state !== 'past') allPast = false;
         });
 
-        // 空狀態畫面（賽博方塊動畫）先暫停使用，考慮後再決定是否啟用。
-        // setEmptyState(allPast);
+        setEmptyState(allPast);
     }
 
     // ========================================================================
-    // 空狀態畫面：今日會議全部結束（或本來就沒有會議）時，用賽博方塊動畫
+    // 空狀態畫面：今日會議全部結束（或本來就沒有會議）時，用一張圖片
     // 取代空白的捲動區，避免看板看起來像壞掉。
     // ========================================================================
     let emptyStateEl = null;
-
-    // 隨機取 [min, max] 之間的浮點數，用來讓每顆方塊的大小/位置/速度都不同步。
-    function rand(min, max) {
-        return min + Math.random() * (max - min);
-    }
-
-    function buildCube() {
-        const size = rand(28, 64); // px
-        const left = rand(0, 90);  // % of .cyber-grid 寬
-        const top = rand(0, 85);   // % of .cyber-grid 高
-        const floatX = rand(40, 140);
-        const floatY = rand(30, 100);
-        const floatZ = rand(60, 180);
-        const floatDuration = rand(6, 12);
-        const floatDelay = rand(0, 6);
-        const spinDuration = rand(5, 11);
-        const spinDelay = rand(0, 4);
-
-        const wrap = document.createElement('div');
-        wrap.className = 'cyber-float';
-        wrap.style.left = left + '%';
-        wrap.style.top = top + '%';
-        wrap.style.width = size + 'px';
-        wrap.style.height = size + 'px';
-        wrap.style.setProperty('--float-x', floatX + 'px');
-        wrap.style.setProperty('--float-y', floatY + 'px');
-        wrap.style.setProperty('--float-z', floatZ + 'px');
-        wrap.style.animationDuration = floatDuration + 's';
-        wrap.style.animationDelay = floatDelay + 's';
-
-        const cube = document.createElement('div');
-        cube.className = 'cube';
-        cube.style.setProperty('--size', size + 'px');
-        cube.style.animationDuration = spinDuration + 's';
-        cube.style.animationDelay = spinDelay + 's';
-
-        ['front', 'back', 'right', 'left', 'top', 'bottom'].forEach(function (faceName) {
-            const face = document.createElement('div');
-            face.className = 'face face--' + faceName;
-            cube.appendChild(face);
-        });
-
-        wrap.appendChild(cube);
-        return wrap;
-    }
 
     function buildEmptyState() {
         const el = document.createElement('div');
         el.id = 'empty-state-cyber';
 
-        const grid = document.createElement('div');
-        grid.className = 'cyber-grid';
-        for (let i = 0; i < 16; i++) {
-            grid.appendChild(buildCube());
-        }
+        const img = document.createElement('img');
+        img.className = 'empty-state-img';
+        img.src = chrome.runtime.getURL('assets/photos/1000028552-removebg-preview.png');
+        img.alt = '今日會議已全部結束';
 
-        const scanline = document.createElement('div');
-        scanline.className = 'cyber-scanline';
-
-        const message = document.createElement('div');
-        message.className = 'cyber-message';
-        message.textContent = '今日會議已全部結束';
-
-        el.appendChild(grid);
-        el.appendChild(scanline);
-        el.appendChild(message);
+        el.appendChild(img);
         return el;
     }
 

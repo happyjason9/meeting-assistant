@@ -41,7 +41,8 @@
         {
             "resources": [
                 "assets/font/Iansui-Regular.ttf",
-                "assets/icons/icon-svg/*.svg"
+                "assets/icons/icon-svg/*.svg",
+                "assets/photos/*.png"
             ],
             "matches": ["https://meeting.cdc.gov.tw/*"]
         }
