@@ -312,6 +312,147 @@
     }
 
     // ========================================================================
+    // 底部疾管署資訊輪播（左側，右側留給語音助手的「聆聽中」）
+    //
+    // 資料來源：疾管署「新聞稿」RSS（由 background.js 代抓，最新 10 則）。
+    // 每 30 分鐘重抓一次，內容有變才重建。抓取失敗時沿用上次成功的內容
+    // （存在 chrome.storage），網路短暫斷線時看板不會變空白。
+    //
+    // 一次顯示一則，停留 TICKER_HOLD_MS 後淡入下一則。標題一行放不下的，
+    // 加上 .is-long 改用小字、最多兩行（見 style.css）。
+    // 輪播區是 position:fixed 獨立於表格，更新它不影響 .tbl-content 的 scrollHeight。
+    // ========================================================================
+    const TICKER_HOLD_MS = 3000;
+    const TICKER_REFRESH_MS = 30 * 60 * 1000;
+
+    let tickerViewport = null;
+    let tickerShownKey = null;
+    let tickerTimer = null;
+
+    function buildTicker() {
+        const el = document.createElement('div');
+        el.id = 'epi-ticker';
+
+        const label = document.createElement('div');
+        label.className = 'epi-ticker-label';
+        label.textContent = '疾管署資訊';
+
+        tickerViewport = document.createElement('div');
+        tickerViewport.className = 'epi-ticker-viewport';
+
+        el.appendChild(label);
+        el.appendChild(tickerViewport);
+        document.body.appendChild(el);
+
+        // 視窗大小改變時，重新判斷哪些標題需要縮成兩行
+        window.addEventListener('resize', fitTickerItems);
+    }
+
+    // 先以一般字級單行量測，超出寬度的標題才標成 .is-long（小字兩行）
+    function fitTickerItems() {
+        if (!tickerViewport) return;
+        tickerViewport.querySelectorAll('.epi-ticker-item').forEach(function (el) {
+            el.classList.remove('is-long');
+            if (el.scrollWidth > el.clientWidth + 1) el.classList.add('is-long');
+        });
+    }
+
+    // items: [{ date: '10/13', title: '...' }]
+    function renderTicker(items) {
+        const key = JSON.stringify(items);
+        if (key === tickerShownKey) return;
+        tickerShownKey = key;
+
+        if (tickerTimer) clearInterval(tickerTimer);
+        tickerViewport.textContent = '';
+
+        const els = items.map(function (it) {
+            const item = document.createElement('div');
+            item.className = 'epi-ticker-item';
+            if (it.date) {
+                const date = document.createElement('span');
+                date.className = 'epi-ticker-date';
+                date.textContent = it.date;
+                item.appendChild(date);
+            }
+            item.appendChild(document.createTextNode(it.title));
+            tickerViewport.appendChild(item);
+            return item;
+        });
+
+        // 等字體載入完再量寬度，否則換字體後寬度會變、判斷失準
+        document.fonts.ready.then(fitTickerItems);
+
+        let index = 0;
+        els[0].classList.add('is-active');
+        if (els.length < 2) return;
+        tickerTimer = setInterval(function () {
+            els[index].classList.remove('is-active');
+            index = (index + 1) % els.length;
+            els[index].classList.add('is-active');
+        }, TICKER_HOLD_MS);
+    }
+
+    // RSS 的 guid 是發布時間（如 2026-10-13-14-00-00），取月/日顯示
+    function itemsFromRss(text) {
+        const doc = new DOMParser().parseFromString(text, 'application/xml');
+        return Array.from(doc.querySelectorAll('item')).map(function (item) {
+            const title = (item.querySelector('title')?.textContent || '').replace(/\s+/g, ' ').trim();
+            const guid = item.querySelector('guid')?.textContent || '';
+            const m = guid.match(/^\d{4}-(\d{2})-(\d{2})/);
+            const date = m ? Number(m[1]) + '/' + Number(m[2]) : '';
+            return { date: date, title: title };
+        }).filter(function (it) { return it.title.length > 0; });
+    }
+
+    // 抓取失敗：有舊內容就沿用；完全沒有內容時顯示提示，避免跑馬燈空白一條像壞掉。
+    // 最常見原因是擴充功能的「網站存取權」只允許 meeting.cdc.gov.tw，
+    // 沒有 www.cdc.gov.tw，background 的 fetch 會被擋（Failed to fetch）。
+    function onTickerFail(reason) {
+        console.warn('[跑馬燈] 抓取疾管署新聞稿 RSS 失敗：', reason,
+            '｜請確認擴充功能的網站存取權包含 https://www.cdc.gov.tw');
+        if (tickerShownKey === null) {
+            renderTicker([{ date: '', title: '暫時無法取得疾管署最新新聞稿' }]);
+        }
+    }
+
+    function refreshTicker() {
+        try {
+            chrome.runtime.sendMessage({ target: 'background', action: 'fetch_ticker' }, function (res) {
+                if (chrome.runtime.lastError || !res) {
+                    onTickerFail(chrome.runtime.lastError ? chrome.runtime.lastError.message : 'background 沒有回應');
+                    return;
+                }
+                if (res.ok) {
+                    const items = itemsFromRss(res.text);
+                    if (items.length) {
+                        renderTicker(items);
+                        chrome.storage.local.set({ tickerCache: items });
+                    } else {
+                        onTickerFail('RSS 內容解析不到任何新聞稿');
+                    }
+                } else {
+                    onTickerFail(res.error);
+                }
+            });
+        } catch (e) {
+            // 擴充功能重新載入後舊頁面的 chrome.runtime 會失效，忽略即可
+        }
+    }
+
+    function startTicker() {
+        buildTicker();
+        // 先用快取立刻顯示，再去抓最新內容
+        chrome.storage.local.get('tickerCache', function (data) {
+            if (data && Array.isArray(data.tickerCache) && data.tickerCache.length && typeof data.tickerCache[0] === 'object') {
+                renderTicker(data.tickerCache);
+            }
+            refreshTicker();
+        });
+        setInterval(refreshTicker, TICKER_REFRESH_MS);
+    }
+
+    // ========================================================================
     // 自動滾動
     // 單一 requestAnimationFrame 迴圈，用時間增量位移（不受掉幀影響）。
     // 流程：停在頂端 → 平滑往下滾到底 → 停在底端 → 平滑滾回頂端 → 循環。
@@ -319,6 +460,10 @@
     let phase = 'pauseTop';   // pauseTop | down | pauseBottom | up
     let phaseUntil = 0;       // 暫停狀態的結束時間戳
     let lastTs = 0;
+    // 自己記住捲動位置（浮點數），不從 scrollTop 讀回來累加：
+    // 每幀只移動零點幾 px，在像素比 1 的螢幕上 Chrome 會把 scrollTop 捨入成整數，
+    // 「讀回來 + 0.5」每次都被捨回原值，畫面就永遠卡在頂端不動。
+    let scrollPos = 0;
 
     function isAssistantActive() {
         const overlay = document.getElementById('assistant-overlay');
@@ -346,19 +491,26 @@
 
         const max = content.scrollHeight - content.clientHeight;
 
+        // scrollTop 被外部改過（手動捲動、語音搜尋重置表格），從實際位置接續
+        if (Math.abs(content.scrollTop - scrollPos) > 2) {
+            scrollPos = content.scrollTop;
+        }
+
         switch (phase) {
             case 'pauseTop':
                 if (ts >= phaseUntil) phase = 'down';
                 break;
 
             case 'down':
-                if (content.scrollTop >= max - 1) {
-                    content.scrollTop = max;           // 貼齊底部
+                if (scrollPos >= max - 1) {
+                    scrollPos = max;                   // 貼齊底部
+                    content.scrollTop = scrollPos;
                     phase = 'pauseBottom';
                     phaseUntil = ts + PAUSE_AT_BOTTOM_MS;
                     onPause();
                 } else {
-                    content.scrollTop += SCROLL_PX_PER_SECOND * dt;
+                    scrollPos = Math.min(scrollPos + SCROLL_PX_PER_SECOND * dt, max);
+                    content.scrollTop = scrollPos;
                 }
                 break;
 
@@ -367,13 +519,15 @@
                 break;
 
             case 'up':
-                if (content.scrollTop <= 1) {
-                    content.scrollTop = 0;             // 貼齊頂部
+                if (scrollPos <= 1) {
+                    scrollPos = 0;                     // 貼齊頂部
+                    content.scrollTop = 0;
                     phase = 'pauseTop';
                     phaseUntil = ts + PAUSE_AT_TOP_MS;
                     onPause();
                 } else {
-                    content.scrollTop -= SCROLL_PX_PER_SECOND * dt;
+                    scrollPos = Math.max(scrollPos - SCROLL_PX_PER_SECOND * dt, 0);
+                    content.scrollTop = scrollPos;
                 }
                 break;
         }
@@ -398,4 +552,11 @@
     phase = 'pauseTop';
     phaseUntil = performance.now() + PAUSE_AT_TOP_MS;
     requestAnimationFrame(frame);
+
+    // 跑馬燈放在滾動啟動之後，且出錯也不影響看板本體
+    try {
+        startTicker();
+    } catch (e) {
+        console.warn('[跑馬燈] 啟動失敗：', e);
+    }
 })();

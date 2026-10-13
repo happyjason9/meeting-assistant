@@ -61,6 +61,20 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             sendResponse({ ok: true });
         }
 
+        // 跑馬燈：抓疾管署「新聞稿」RSS。
+        // 由 background 代抓是因為 content script 的 fetch 受網頁 CORS 限制
+        // （cdc.gov.tw 沒有回 Access-Control-Allow-Origin），background 有 host_permissions 不受限。
+        // 解析交給 content script 的 DOMParser（service worker 沒有 DOMParser）。
+        else if (msg.action === 'fetch_ticker') {
+            fetch('https://www.cdc.gov.tw/RSS/RssXml/Hh094B49-DRwe2RR4eFfrQ?type=1', { cache: 'no-store' })
+                .then(res => {
+                    if (!res.ok) throw new Error('HTTP ' + res.status);
+                    return res.text();
+                })
+                .then(text => sendResponse({ ok: true, text: text }))
+                .catch(e => sendResponse({ ok: false, error: String(e) }));
+        }
+
         // 錄音儲存（原有功能）
         else if (msg.action === 'save_record') {
             const now = new Date();
