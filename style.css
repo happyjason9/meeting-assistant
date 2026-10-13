@@ -183,6 +183,17 @@ th {
     border-radius: 0 !important;
     letter-spacing: 0.12em;
     text-shadow: none;
+    /* 欄位較窄時（如承辦人）避免表頭文字被迫換行成上下兩行 */
+    white-space: nowrap;
+}
+
+/* 承辦人欄天生只有 7% 寬，配合 nowrap 會溢出，單獨縮小字級與字距讓三字擠得下
+   （見 redesign.js 的 shrinkNarrowHeader，用表頭文字動態掛上這個 class） */
+th.th-narrow {
+    font-size: 24px !important;
+    letter-spacing: 0.02em;
+    padding-left: 4px !important;
+    padding-right: 4px !important;
 }
 
 /* --------------------------------------------------------------------------

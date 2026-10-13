@@ -312,6 +312,16 @@ function startRecognition(_mode) {
             } else if (currentTranscript.includes("找會議") || currentTranscript.includes("查詢") || currentTranscript.includes("查一下") || currentTranscript.includes("找一下")) {
                 if (silenceTimer) clearTimeout(silenceTimer);
                 triggerWakeUpFlow();
+            } else if (currentTranscript.includes("關閉承辦人")) {
+                if (silenceTimer) clearTimeout(silenceTimer);
+                if (typeof window.__meetingBoardSetOwnerVisible === 'function') {
+                    window.__meetingBoardSetOwnerVisible(false);
+                }
+            } else if (currentTranscript.includes("承辦人")) {
+                if (silenceTimer) clearTimeout(silenceTimer);
+                if (typeof window.__meetingBoardSetOwnerVisible === 'function') {
+                    window.__meetingBoardSetOwnerVisible(true);
+                }
             }
         } else if (currentState === 'speaking') {
             if (isFinal && currentTranscript.trim().length > 0) {

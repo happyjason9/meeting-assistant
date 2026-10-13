@@ -113,6 +113,15 @@
         });
     }
 
+    // 「承辦人」欄天生只有 7% 寬，三個字用預設 26px 表頭字級會擠不下、
+    // 加上 nowrap 後直接溢出到旁欄。用表頭文字找出這一欄，單獨縮小字級，
+    // 其他欄位（夠寬）維持原字級不受影響。
+    function shrinkNarrowHeader(headerText) {
+        const ths = Array.from(document.querySelectorAll('.tbl-header th'));
+        const th = ths.find(function (t) { return t.textContent.trim() === headerText; });
+        if (th) th.classList.add('th-narrow');
+    }
+
     // 會議地點欄（第 3 欄）常帶括號註記（如「(不開放外機關借用)」），看板上是雜訊。
     function cleanLocationNotes() {
         content.querySelectorAll('tbody tr').forEach(function (row) {
@@ -196,6 +205,34 @@
     }
 
     // ========================================================================
+    // 承辦人欄位語音開關：講「承辦人」顯示、「關閉承辦人」隱藏。
+    //
+    // 欄位是否存在於表格 DOM，取決於原站側邊選單「表單顯示選項」裡 #User
+    // checkbox 的勾選狀態——這個設定是靠表單 POST 整頁送出的（見 Meeting.js
+    // 沒有任何前端切換欄位的邏輯），不是單純 CSS 顯示/隱藏。開/關都統一走
+    // 「勾選 #User + 提交表單 + 整頁重新渲染」，確保欄位移除/加回時，
+    // 欄寬與版面是由伺服器端重新輸出、不會有殘留空隙或排版跑掉。
+    // ========================================================================
+    function submitOwnerColumnChange(visible) {
+        const checkbox = document.getElementById('User');
+        const submitBtn = document.getElementById('btn-select-host');
+        const form = submitBtn && submitBtn.closest('form');
+        if (!checkbox || !form) return false;
+
+        if (checkbox.checked === visible) {
+            // 勾選狀態已經是目標值，重新提交也不會有變化，直接放棄避免無意義 reload。
+            return false;
+        }
+        checkbox.checked = visible;
+        form.submit();
+        return true;
+    }
+
+    window.__meetingBoardSetOwnerVisible = function (visible) {
+        submitOwnerColumnChange(visible);
+    };
+
+    // ========================================================================
     // 會議狀態標記（灰/黃/綠/紅點 + 流光）
     // 灰＝尚未開始（開會前 15 分鐘以上）、黃＝即將開始（開會前 15 分鐘內，閃爍）、
     // 綠＝進行中（含流光）、紅＝已結束。只切換 class，不改文字/欄寬，
@@ -231,7 +268,14 @@
             if (state !== 'past') allPast = false;
         });
 
-        setEmptyState(allPast);
+        // 側邊選單「顯示開過之會議」（#Display，value="1"）開啟時，表格本來就會
+        // 刻意列出已結束的會議，此時「全部都是 past」是正常內容、不是沒會議，
+        // 不該被空狀態圖片蓋掉；只有真的一列都沒有，或該設定關閉（預設）時
+        // 全部過期，才視為空狀態。
+        const displaySelect = document.getElementById('Display');
+        const showingPastMeetings = displaySelect && displaySelect.value === '1';
+        const isEmpty = rows.length === 0 || (allPast && !showingPastMeetings);
+        setEmptyState(isEmpty);
     }
 
     // ========================================================================
@@ -348,6 +392,7 @@
     cleanLocationNotes();
     normalizeTimeSpacing();
     iconizePreparing();
+    shrinkNarrowHeader('承辦人');
     updateActiveMeetings();
 
     phase = 'pauseTop';
