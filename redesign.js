@@ -379,12 +379,17 @@
         window.__meetingBoardRefitTicker = fitTickerItems;
     }
 
-    // 先以一般字級單行量測，超出寬度的標題才標成 .is-long（小字兩行）
+    // 逐段縮字：先以一般字級單行量測，超出寬度才標 .is-long（小字兩行），
+    // 兩行還被截斷（內容高度超過可見高度）再加 .is-xlong（更小字三行）
     function fitTickerItems() {
         if (!tickerViewport) return;
         tickerViewport.querySelectorAll('.epi-ticker-item').forEach(function (el) {
-            el.classList.remove('is-long');
-            if (el.scrollWidth > el.clientWidth + 1) el.classList.add('is-long');
+            el.classList.remove('is-long', 'is-xlong');
+            if (el.scrollWidth <= el.clientWidth + 1) return;
+            el.classList.add('is-long');
+            // 行高有小數（22px × 1.3），兩行剛好放滿時 scrollHeight 也會比 clientHeight 多 1px，
+            // 真的多一行至少差 20px 以上，所以門檻放寬到 4px 避免誤判
+            if (el.scrollHeight > el.clientHeight + 4) el.classList.add('is-xlong');
         });
     }
 
