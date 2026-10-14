@@ -315,8 +315,10 @@
     // 底部疾管署資訊輪播（左側，右側留給語音助手的「聆聽中」）
     //
     // 資料來源：疾管署「新聞稿」RSS（由 background.js 代抓，最新 10 則）。
-    // 每 30 分鐘重抓一次，內容有變才重建。抓取失敗時沿用上次成功的內容
-    // （存在 chrome.storage），網路短暫斷線時看板不會變空白。
+    // 快取 1 小時：原站 Meeting.js 每 300 秒會整頁 reload，若每次載入都重抓，
+    // 一天會打官網近 300 次。所以載入時先看快取時間，未滿 1 小時直接用快取，
+    // 過期才重抓（新聞稿多在下午 2 點發布，最晚 1 小時內會出現在看板上）。
+    // 抓取失敗時沿用上次成功的內容，網路短暫斷線時看板不會變空白。
     //
     // 一次顯示一則，停留時間依字數決定（見 tickerHoldMs），再淡入下一則。標題一行放不下的，
     // 加上 .is-long 改用小字、最多兩行（見 style.css）。
@@ -333,7 +335,7 @@
         const ms = TICKER_HOLD_BASE_MS + title.length * TICKER_HOLD_PER_CHAR_MS;
         return Math.min(Math.max(ms, TICKER_HOLD_MIN_MS), TICKER_HOLD_MAX_MS);
     }
-    const TICKER_REFRESH_MS = 30 * 60 * 1000;
+    const TICKER_REFRESH_MS = 60 * 60 * 1000;
 
     let tickerViewport = null;
     let tickerShownKey = null;
@@ -356,6 +358,8 @@
 
         // 視窗大小改變時，重新判斷哪些標題需要縮成兩行
         window.addEventListener('resize', fitTickerItems);
+        // content.js 翻譯／還原後文字長度改變，也要重新判斷（兩支 content script 共用同一個 isolated world）
+        window.__meetingBoardRefitTicker = fitTickerItems;
     }
 
     // 先以一般字級單行量測，超出寬度的標題才標成 .is-long（小字兩行）
@@ -385,13 +389,22 @@
                 date.textContent = it.date;
                 item.appendChild(date);
             }
-            item.appendChild(document.createTextNode(it.title));
+            // 標題獨立包一層 span，content.js 翻譯時只換這層文字、不動日期
+            const title = document.createElement('span');
+            title.className = 'epi-ticker-title';
+            title.textContent = it.title;
+            item.appendChild(title);
             tickerViewport.appendChild(item);
             return item;
         });
 
         // 等字體載入完再量寬度，否則換字體後寬度會變、判斷失準
         document.fonts.ready.then(fitTickerItems);
+
+        // 通知 content.js：英文模式下要把新建的輪播內容翻成英文
+        if (typeof window.__meetingBoardOnTickerRendered === 'function') {
+            window.__meetingBoardOnTickerRendered();
+        }
 
         let index = 0;
         els[0].classList.add('is-active');
@@ -441,7 +454,7 @@
                     const items = itemsFromRss(res.text);
                     if (items.length) {
                         renderTicker(items);
-                        chrome.storage.local.set({ tickerCache: items });
+                        chrome.storage.local.set({ tickerCache: items, tickerCachedAt: Date.now() });
                     } else {
                         onTickerFail('RSS 內容解析不到任何新聞稿');
                     }
@@ -457,11 +470,13 @@
     function startTicker() {
         buildTicker();
         // 先用快取立刻顯示，再去抓最新內容
-        chrome.storage.local.get('tickerCache', function (data) {
-            if (data && Array.isArray(data.tickerCache) && data.tickerCache.length && typeof data.tickerCache[0] === 'object') {
-                renderTicker(data.tickerCache);
-            }
-            refreshTicker();
+        chrome.storage.local.get(['tickerCache', 'tickerCachedAt'], function (data) {
+            const hasCache = data && Array.isArray(data.tickerCache) && data.tickerCache.length
+                && typeof data.tickerCache[0] === 'object';
+            if (hasCache) renderTicker(data.tickerCache);
+
+            const age = Date.now() - (data.tickerCachedAt || 0);
+            if (!hasCache || age >= TICKER_REFRESH_MS) refreshTicker();
         });
         setInterval(refreshTicker, TICKER_REFRESH_MS);
     }

@@ -129,7 +129,21 @@ const subText = overlay.querySelector('#assistant-subtext');
 let currentState = 'idle';
 let isRecognitionActive = false;
 let watchdogTimer = null;
-let isTranslateMode = false;
+// 英文模式記在 sessionStorage：原站每 300 秒整頁 reload，reload 後要自動重新翻譯才能維持英文。
+// 用 sessionStorage（同一分頁 reload 仍有效，關掉分頁或重開瀏覽器就回到中文），
+// 避免看板在沒人注意時永遠卡在英文。
+const TRANSLATE_MODE_KEY = 'meetingBoardTranslateMode';
+let isTranslateMode = (() => {
+    try { return sessionStorage.getItem(TRANSLATE_MODE_KEY) === 'en'; } catch (e) { return false; }
+})();
+
+function setTranslateMode(on) {
+    isTranslateMode = on;
+    try {
+        if (on) sessionStorage.setItem(TRANSLATE_MODE_KEY, 'en');
+        else sessionStorage.removeItem(TRANSLATE_MODE_KEY);
+    } catch (e) {}
+}
 
 // 工具：重置圓環動畫
 function resetRingAnimation() {
@@ -301,13 +315,13 @@ function startRecognition(_mode) {
             if (currentTranscript.includes("翻譯成英文") || currentTranscript.includes("翻譯英文")) {
                 if (silenceTimer) clearTimeout(silenceTimer);
                 if (isTranslating) return; // 翻譯進行中，忽略重複指令
-                isTranslateMode = true;
+                setTranslateMode(true);
                 currentState = 'transitioning';
                 stopRecognition();
                 translateTableToEnglish(); // 立即整頁翻譯
             } else if (currentTranscript.includes("翻譯成中文") || currentTranscript.includes("翻譯中文") || currentTranscript.includes("顯示中文") || currentTranscript.includes("還原中文")) {
                 if (silenceTimer) clearTimeout(silenceTimer);
-                isTranslateMode = false;
+                setTranslateMode(false);
                 restoreOriginalText();
             } else if (currentTranscript.includes("找會議") || currentTranscript.includes("查詢") || currentTranscript.includes("查一下") || currentTranscript.includes("找一下")) {
                 if (silenceTimer) clearTimeout(silenceTimer);
@@ -754,7 +768,9 @@ function applyTranslateStyle() {
     translateStyleEl.textContent = `
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;700&display=swap');
         .tbl-header table th,
-        .tbl-content table td {
+        .tbl-content table td,
+        .epi-ticker-item,
+        .epi-ticker-label {
             font-family: 'Noto Sans', sans-serif !important;
             word-break: break-word !important;
         }
@@ -768,16 +784,42 @@ function removeTranslateStyle() {
     }
 }
 
-async function translateTableToEnglish() {
+// 翻譯／還原後輪播標題長度改變，請 redesign.js 重新判斷哪些要縮成兩行
+function refitTicker() {
+    if (typeof window.__meetingBoardRefitTicker === 'function') {
+        window.__meetingBoardRefitTicker();
+    }
+}
+
+// auto：英文模式下 reload 或輪播重建後的自動重新翻譯。不跳出「Translating...」
+// （active-mode 會把語音框移到畫面中央並暫停滾動），失敗也只記 log，不打斷看板。
+let retranslatePending = false;
+
+async function translateTableToEnglish(opts = {}) {
+    const auto = !!opts.auto;
+    if (isTranslating) {
+        if (auto) retranslatePending = true; // 翻譯中又有新內容，翻完再補一次
+        return;
+    }
+    // 在第一個 await 之前就上鎖，避免兩次自動翻譯同時通過上面的檢查
+    isTranslating = true;
+
+    const fail = (msg, delay) => {
+        isTranslating = false;
+        console.warn('[語音助理] 翻譯失敗：', msg);
+        if (!auto) {
+            updateUI('error', msg);
+            setTimeout(resetToIdle, delay);
+        }
+    };
+
     const { translateApiKey } = await chrome.storage.local.get('translateApiKey');
     if (!translateApiKey) {
-        updateUI('error', 'No API Key — set it in extension options');
-        setTimeout(resetToIdle, 4000);
+        fail('No API Key — set it in extension options', 4000);
         return;
     }
 
-    isTranslating = true;
-    updateUI('searching', 'Translating...');
+    if (!auto) updateUI('searching', 'Translating...');
 
     // 套用縮小字體的 CSS，避免英文排版爆欄
     applyTranslateStyle();
@@ -819,19 +861,38 @@ async function translateTableToEnglish() {
         });
     });
 
+    // 4. 底部疾管署資訊輪播（redesign.js 建立）：標籤與每則標題，日期不翻
+    //    輪播抓到新內容重建成中文時，會透過 __meetingBoardOnTickerRendered 自動再翻一次
+    document.querySelectorAll('#epi-ticker .epi-ticker-label, #epi-ticker .epi-ticker-title').forEach(el => {
+        if (el.textContent.trim()) cells.push(el);
+    });
+
     if (cells.length === 0) {
-        updateUI('showing_results', 'No content to translate');
-        setTimeout(resetToIdle, 3000);
+        isTranslating = false;
+        if (!auto) {
+            updateUI('showing_results', 'No content to translate');
+            setTimeout(resetToIdle, 3000);
+        }
         return;
     }
 
-    // 翻譯輸入一律用原始中文：文字節點用 textContent，表格 td 用 dataset.zh，其餘用 innerText
+    // 翻譯輸入一律用原始中文：已翻過的節點用記錄的原文，文字節點用 textContent，
+    // 表格 td 用 dataset.zh，其餘用 innerText（重複翻譯時才不會把英文再送去翻）
     const getText = (el) => {
+        const prev = translatedItems.find(item => item.node === el);
+        if (prev) return prev.original.trim();
         if (el.nodeType === Node.TEXT_NODE) return el.textContent.trim();
         if (el.dataset && el.dataset.zh !== undefined) return el.dataset.zh.trim();
         return el.innerText.trim();
     };
     const texts = cells.map(getText);
+
+    // 譯文快取（中文原文 → 英文），存在 chrome.storage。英文模式下每次 reload 都要重新翻譯，
+    // 已翻過的字串直接套用，只有新出現的會議／新聞稿才送 Gemini，避免每 5 分鐘呼叫一次 API。
+    const TRANSLATE_CACHE_MAX = 3000;
+    let { translateCache } = await chrome.storage.local.get('translateCache');
+    if (!translateCache || Object.keys(translateCache).length > TRANSLATE_CACHE_MAX) translateCache = {};
+    const missing = [...new Set(texts.filter(t => t && translateCache[t] === undefined))];
 
     // Fallback 順序：3.1 Flash Lite → 3.1 Flash → 2.5 Flash Lite → 2.5 Flash → 2.5 Pro
     const MODEL_FALLBACKS = [
@@ -844,9 +905,9 @@ async function translateTableToEnglish() {
 
     const prompt = `You are a translation engine. Translate each string in this JSON array from Traditional Chinese to English. ` +
         `Keep numbers, codes, room numbers (e.g. 7F, B1F) and names as-is. ` +
-        `Output MUST be a valid JSON array of exactly ${texts.length} strings, same order. ` +
+        `Output MUST be a valid JSON array of exactly ${missing.length} strings, same order. ` +
         `Do NOT add any text, explanation, or markdown fences. Output only the raw JSON array.\n\n` +
-        JSON.stringify(texts);
+        JSON.stringify(missing);
 
     const tryParse = (s) => { try { return JSON.parse(s); } catch (e) { return null; } };
 
@@ -867,10 +928,11 @@ async function translateTableToEnglish() {
         return null;
     };
 
-    let translations = null;
+    // 全部命中快取時不呼叫 API
+    let translations = missing.length ? null : [];
 
     try {
-        for (const model of MODEL_FALLBACKS) {
+        for (const model of (missing.length ? MODEL_FALLBACKS : [])) {
             console.log('[語音助理] 嘗試模型：', model.id);
             const genConfig = model.jsonMode
                 ? { temperature: 0, responseMimeType: 'application/json' }
@@ -898,9 +960,7 @@ async function translateTableToEnglish() {
             if (!resp.ok || data.error) {
                 console.error('[語音助理] API 錯誤：', resp.status, JSON.stringify(data));
                 const reason = data.error ? data.error.message : `HTTP ${resp.status}`;
-                updateUI('error', 'Translate failed: ' + reason);
-                isTranslating = false;
-                setTimeout(resetToIdle, 6000);
+                fail('Translate failed: ' + reason, 6000);
                 return;
             }
 
@@ -909,24 +969,29 @@ async function translateTableToEnglish() {
                 && data.candidates[0].content.parts[0].text) || '';
             console.log('[語音助理] 模型回傳 (' + model.id + ')：', raw);
 
-            translations = parseTranslations(raw, texts.length);
+            translations = parseTranslations(raw, missing.length);
             if (Array.isArray(translations)) break; // 成功，跳出迴圈
 
             console.warn('[語音助理] 解析失敗，換下一個模型');
         }
 
         if (!Array.isArray(translations)) {
-            console.error('[語音助理] 所有模型都失敗');
-            updateUI('error', 'Translate failed — all models exhausted');
-            isTranslating = false;
-            setTimeout(resetToIdle, 5000);
+            fail('Translate failed — all models exhausted', 5000);
             return;
         }
 
-        if (!Array.isArray(translations)) {
-            console.error('[語音助理] 無法解析模型回傳：', raw);
-            updateUI('error', 'Translate failed — bad response');
-            setTimeout(resetToIdle, 5000);
+        // 新譯文寫入快取（長度對不上代表模型漏翻或多翻，對應關係不可靠，就不寫）
+        if (missing.length && translations.length === missing.length) {
+            missing.forEach((zh, i) => {
+                if (typeof translations[i] === 'string' && translations[i]) translateCache[zh] = translations[i];
+            });
+            chrome.storage.local.set({ translateCache });
+        }
+        translations = texts.map(t => translateCache[t]);
+
+        // 等 API 期間使用者已說「翻譯成中文」，就不要再把英文套上去
+        if (!isTranslateMode) {
+            isTranslating = false;
             return;
         }
 
@@ -943,17 +1008,34 @@ async function translateTableToEnglish() {
             if (isText) el.textContent = translated;
             else el.innerText = translated;
         });
+        refitTicker();
 
         isTranslating = false;
-        updateUI('showing_results', 'Translated');
-        // 翻完回到聆聽，讓使用者接著講「我要找會議室」
-        setTimeout(resetToIdle, 1500);
+        if (!auto) {
+            updateUI('showing_results', 'Translated');
+            // 翻完回到聆聽，讓使用者接著講「我要找會議室」
+            setTimeout(resetToIdle, 1500);
+        }
     } catch (err) {
-        isTranslating = false;
         console.error('[語音助理] 翻譯失敗：', err);
-        updateUI('error', 'Translation failed — check API Key');
-        setTimeout(resetToIdle, 4000);
+        fail('Translation failed — check API Key', 4000);
     }
+
+    if (retranslatePending && isTranslateMode) {
+        retranslatePending = false;
+        translateTableToEnglish({ auto: true });
+    }
+}
+
+// 英文模式下自動重新翻譯：
+// - redesign.js 每次建好／重建底部輪播（頁面載入、抓到新新聞稿）都會呼叫這個 hook，
+//   此時表格與輪播都已就緒，整頁一起翻（有快取，通常不需呼叫 API）
+// - 保險起見載入 3 秒後再補一次，輪播沒建起來時表格仍會翻成英文
+window.__meetingBoardOnTickerRendered = () => {
+    if (isTranslateMode) translateTableToEnglish({ auto: true });
+};
+if (isTranslateMode) {
+    setTimeout(() => translateTableToEnglish({ auto: true }), 3000);
 }
 
 function restoreOriginalText() {
@@ -968,6 +1050,7 @@ function restoreOriginalText() {
     });
     // 移除翻譯模式的縮字 CSS
     removeTranslateStyle();
+    refitTicker();
     // 還原被搜尋隱藏的列、清除螢光筆
     clearHighlights();
     resetTable();
