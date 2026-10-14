@@ -200,12 +200,27 @@ const I18N = {
     found_meetings:     { zh: (n) => `找到 ${n} 筆會議`, en: (n) => `Found ${n} meeting(s)` },
     not_found:          { zh: "找不到符合的資料",     en: "No matching results" },
     searching_for:      { zh: (k) => `搜尋：${k}`,    en: (k) => `Search: ${k}` },
+    understanding:      { zh: "理解中...",           en: "Understanding..." },
+    not_understood:     { zh: "抱歉，我沒聽懂",       en: "Sorry, I didn't catch that" },
 };
+
+// 這一次查詢使用的語言：'zh' | 'en' | null（待命中）。
+// 由喚醒時說的話決定：說「我要找會議室」→ 中文；英文模式下說「Find a meeting room」→ 英文。
+// 查詢期間的提示、語音、辨識語言都跟著它；待命時（null）跟著畫面模式。
+let queryLang = null;
+
+function currentLang() {
+    return queryLang || (isTranslateMode ? 'en' : 'zh');
+}
+
+function speechLang() {
+    return currentLang() === 'en' ? 'en-US' : 'zh-TW';
+}
 
 function t(key, arg) {
     const entry = I18N[key];
     if (!entry) return '';
-    const val = isTranslateMode ? entry.en : entry.zh;
+    const val = currentLang() === 'en' ? entry.en : entry.zh;
     return typeof val === 'function' ? val(arg) : val;
 }
 
@@ -284,12 +299,20 @@ function startRecognition(_mode) {
 
     isRecognitionActive = true;
 
-    recognition = new webkitSpeechRecognition();
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.lang = 'zh-TW';
+    // 每個辨識物件的事件只在它仍是「目前的」物件時才處理。
+    // stopRecognition() 會立刻把 recognition 清成 null，舊物件的 onend/onerror 常常晚幾百毫秒才到；
+    // 若照單全收，會把新物件的狀態清掉、甚至再多開一個，兩個互相 abort，助理就卡住不理人。
+    const rec = new webkitSpeechRecognition();
+    recognition = rec;
+    rec.continuous = true;
+    rec.interimResults = true;
+    // 待命時一律中文辨識：不管畫面是中文或英文，都聽得懂「翻譯成中文」等中文指令，
+    // 「Find a meeting room」這類簡單英文中文辨識通常也辨識得出來。
+    // 只有英文喚醒後的查詢階段才改用英文辨識。
+    rec.lang = (_mode === 'speaking' && queryLang === 'en') ? 'en-US' : 'zh-TW';
 
-    recognition.onstart = () => {
+    rec.onstart = () => {
+        if (recognition !== rec) return;
         console.log('[語音助理] onstart：語音辨識已啟動 state=' + currentState);
         lastTranscript = "";
         if (watchdogTimer) clearTimeout(watchdogTimer);
@@ -297,20 +320,29 @@ function startRecognition(_mode) {
         if (currentState === 'idle' || currentState === 'listening') {
             updateUI('listening');
             micIndicator.classList.remove('counting');
+            // 長時間連續辨識偶爾會「活著但不再回傳結果」，每 60 秒重開一次保持新鮮
             watchdogTimer = setTimeout(() => {
-                if (currentState === 'listening' && isRecognitionActive) stopRecognition();
+                if (currentState === 'listening' && isRecognitionActive) {
+                    stopRecognition();
+                    setTimeout(() => startRecognition('listening'), 300);
+                }
             }, 60000);
         } else if (currentState === 'speaking') {
             resetRingAnimation();
             watchdogTimer = setTimeout(() => {
                 if (currentState === 'speaking' && isRecognitionActive) {
+                    // 先停掉查詢用的辨識（英文查詢時是 en-US），否則 resetToIdle 會因為「還在辨識」
+                    // 而不重開，待命時沿用英文辨識，中文指令全都聽不懂
+                    currentState = 'transitioning';
+                    stopRecognition();
                     speakResult(t('timeout'), () => { resetToIdle(); });
                 }
             }, 20000);
         }
     };
 
-    recognition.onresult = (event) => {
+    rec.onresult = (event) => {
+        if (recognition !== rec) return;
         let currentTranscript = '';
         let isFinal = false;
         for (let i = event.resultIndex; i < event.results.length; i++) {
@@ -326,8 +358,7 @@ function startRecognition(_mode) {
             }
         }
 
-        // 翻譯模式下不顯示辨識到的中文語音文字，保持英文提示
-        if (currentTranscript.trim() && !isTranslateMode) subText.innerText = currentTranscript;
+        if (currentTranscript.trim()) subText.innerText = currentTranscript;
 
         if (currentState === 'listening') {
             if (currentTranscript.includes("翻譯成英文") || currentTranscript.includes("翻譯英文")) {
@@ -337,12 +368,19 @@ function startRecognition(_mode) {
                 currentState = 'transitioning';
                 stopRecognition();
                 translateTableToEnglish(); // 立即整頁翻譯
-            } else if (currentTranscript.includes("翻譯成中文") || currentTranscript.includes("翻譯中文") || currentTranscript.includes("顯示中文") || currentTranscript.includes("還原中文")) {
+            } else if (currentTranscript.includes("翻譯成中文") || currentTranscript.includes("翻譯中文") || currentTranscript.includes("顯示中文") || currentTranscript.includes("還原中文")
+                       || (isTranslateMode && /\bchinese\b/i.test(currentTranscript))) {
                 if (silenceTimer) clearTimeout(silenceTimer);
                 setTranslateMode(false);
                 restoreOriginalText();
             } else if (currentTranscript.includes("找會議") || currentTranscript.includes("查詢") || currentTranscript.includes("查一下") || currentTranscript.includes("找一下")) {
                 if (silenceTimer) clearTimeout(silenceTimer);
+                queryLang = 'zh';
+                triggerWakeUpFlow();
+            } else if (isTranslateMode && /\b(find|search|look|looking|where|meeting|meetings|room)\b/i.test(currentTranscript)) {
+                // 英文喚醒只在英文模式啟用：中文模式下同仁講話夾雜「meeting」不會誤觸發
+                if (silenceTimer) clearTimeout(silenceTimer);
+                queryLang = 'en';
                 triggerWakeUpFlow();
             } else if (currentTranscript.includes("關閉承辦人")) {
                 if (silenceTimer) clearTimeout(silenceTimer);
@@ -362,7 +400,8 @@ function startRecognition(_mode) {
         }
     };
 
-    recognition.onerror = (event) => {
+    rec.onerror = (event) => {
+        if (recognition !== rec) return;
         if (silenceTimer) clearTimeout(silenceTimer);
         micIndicator.classList.remove('counting');
         if (watchdogTimer) clearTimeout(watchdogTimer);
@@ -378,11 +417,15 @@ function startRecognition(_mode) {
         } else if (error === 'not-allowed' || error === 'service-not-allowed') {
             updateUI('error', '麥克風未授權，請點擊網址列鎖頭允許此網站使用麥克風');
         } else {
+            // network、audio-capture 等多半是暫時性的：顯示錯誤 5 秒後自動重來，
+            // 看板旁通常沒人，不能停在「請點擊重試」
             updateUI('error');
+            setTimeout(() => { if (currentState === 'error') resetToIdle(); }, 5000);
         }
     };
 
-    recognition.onend = () => {
+    rec.onend = () => {
+        if (recognition !== rec) return;
         console.log('[語音助理] onend：辨識結束 state=' + currentState);
         if (silenceTimer) clearTimeout(silenceTimer);
         micIndicator.classList.remove('counting');
@@ -396,7 +439,7 @@ function startRecognition(_mode) {
     };
 
     try {
-        recognition.start();
+        rec.start();
     } catch(e) {
         console.error('[語音助理] recognition.start() 失敗：', e);
         isRecognitionActive = false;
@@ -438,7 +481,7 @@ function triggerWakeUpFlow() {
     stopRecognition();
 
     const utterance = new SpeechSynthesisUtterance(t('say_query_prompt'));
-    utterance.lang = isTranslateMode ? 'en-US' : 'zh-TW';
+    utterance.lang = speechLang();
 
     let micStarted = false;
     const doStart = () => {
@@ -465,10 +508,28 @@ function triggerWakeUpFlow() {
 function performSearch(queryText) {
     currentState = 'searching'; // 先設定，避免 ended 事件觸發重啟
     stopRecognition();
-    
+
+    // 英文查詢：先請 Gemini 對照今天的會議清單，挑出中文關鍵字與時間，再走同一套中文搜尋
+    if (queryLang === 'en') {
+        updateUI('searching', t('understanding'));
+        englishQueryToSearch(queryText).then(result => {
+            if (!result) {
+                updateUI('speaking', t('not_understood'));
+                speakResult(t('not_understood'), () => { resetToIdle(); });
+                return;
+            }
+            runSearch(result.keyword, result.minute, queryText);
+        });
+        return;
+    }
+
     let rawKeywords = extractKeywords(queryText);
     const timeCheck = parseTimeFromSpeech(queryText);
+    runSearch(rawKeywords, timeCheck, null);
+}
 
+// keyword：中文關鍵字（對原始中文比對）；timeCheck：分鐘數或 null；label：畫面上顯示的查詢文字（null 用關鍵字）
+function runSearch(rawKeywords, timeCheck, label) {
     if (rawKeywords === "會議" || rawKeywords === "會議室" || rawKeywords === "討論" || rawKeywords === "") {
         rawKeywords = ""; 
     }
@@ -481,7 +542,7 @@ function performSearch(queryText) {
         return;
     }
 
-    updateUI('searching', t('searching_for', rawKeywords || (timeCheck ? formatTime(timeCheck) : '')));
+    updateUI('searching', t('searching_for', label || rawKeywords || (timeCheck ? formatTime(timeCheck) : '')));
 
     clearHighlights();
 
@@ -501,8 +562,18 @@ function performSearch(queryText) {
 
     updateUI('showing_results', replyMsg);
 
-    speakResult(replyMsg, () => { setTimeout(forceReset, 6000); });
-    setTimeout(forceReset, 8000);
+    // 結果多到一個畫面放不下時，看板從頂端開始自動捲過所有結果，捲完才跳回完整列表。
+    // 停留時間 = max(唸完後 6 秒, 捲完全部結果的時間)，最長 2 分鐘。
+    const scrollMs = (count > 0 && typeof window.__meetingBoardShowFromTop === 'function')
+        ? window.__meetingBoardShowFromTop() : 0;
+    const holdMs = Math.min(scrollMs, 120000);
+    const shownAt = Date.now();
+
+    speakResult(replyMsg, () => {
+        const elapsed = Date.now() - shownAt;
+        setTimeout(forceReset, Math.max(6000, holdMs - elapsed));
+    });
+    setTimeout(forceReset, Math.max(8000, holdMs + 15000)); // 保底：唸完回呼萬一沒來也一定會跳回
 }
 
 // --- 關鍵字清洗 ---
@@ -686,7 +757,10 @@ function filterMeetingTable(targetMinute, keyword) {
             matchCount++;
             if (matchCount % 2 === 1) { row.classList.add('meeting-odd'); } 
             else { row.classList.add('meeting-even'); }
-            if (matchCount === 1) row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            // 會議看板由 redesign.js 從頂端捲過所有結果；沒有 redesign.js 的頁面才自己捲到第一筆
+            if (matchCount === 1 && typeof window.__meetingBoardShowFromTop !== 'function') {
+                row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
             
             // 上色（翻譯模式下內容是英文，中文關鍵字無法對應，故跳過）
             if (keyword.length > 0 && !isTranslateMode) {
@@ -760,13 +834,29 @@ function resetTable() {
 function speakResult(text, callback) {
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = isTranslateMode ? 'en-US' : 'zh-TW';
-    utterance.onend = callback;
-    utterance.onerror = () => { if(callback) callback(); };
-    window.speechSynthesis.speak(utterance);
+    utterance.lang = speechLang();
+
+    // Chrome 的 speechSynthesis 偶爾不觸發 onend（閒置久了尤其常見），
+    // 呼叫端都在等它唸完才繼續，沒有保底就會整個卡住。依字數估一個上限時間，到了就當作唸完。
+    let done = false;
+    const finish = () => {
+        if (done) return;
+        done = true;
+        clearTimeout(fallback);
+        if (callback) callback();
+    };
+    const fallback = setTimeout(finish, Math.min(2000 + text.length * 150, 12000));
+    utterance.onend = finish;
+    utterance.onerror = finish;
+    try {
+        window.speechSynthesis.speak(utterance);
+    } catch (e) {
+        finish();
+    }
 }
 
 function resetToIdle() {
+    queryLang = null; // 查詢結束，提示與語音回到畫面模式的語言
     updateUI('listening');
     setTimeout(initRecognition, 500);
 }
@@ -792,6 +882,32 @@ function applyTranslateStyle() {
             font-family: 'Noto Sans', sans-serif !important;
             word-break: break-word !important;
         }
+        /* 表頭：中文版為了「承辦人」不換行設了 nowrap，英文欄名（Organizing Unit…）
+           長很多，不能換行就會溢出疊到隔壁欄。英文模式改成可換行、縮小字級與字距 */
+        .tbl-header table th {
+            white-space: normal !important;
+            word-break: normal !important;  /* 只在單字之間換行，不把 Organizer 切成 Organiz/er */
+            font-size: 16px !important;
+            letter-spacing: 0 !important;
+            line-height: 1.2 !important;
+        }
+        /* 表格內容：只在單字之間換行（不把 Auditorium 切成 Auditoriu/m），
+           看板中文版的寬字距（0.1em～0.2em）對英文太寬，縮小後長單字才放得進窄欄。
+           overflow-wrap 保底：單一個字比整欄還寬時才會斷字，避免溢出到隔壁欄 */
+        .tbl-content table td {
+            word-break: normal !important;
+            overflow-wrap: break-word !important;
+            letter-spacing: 0.02em !important;
+        }
+        .tbl-content table td:nth-child(2) {
+            letter-spacing: 0.04em !important;
+        }
+        /* 標題「本日會議」絕對置中，翻成英文變寬會往左壓到署名，縮小字級與字距 */
+        .tbl-title {
+            font-size: 26px !important;
+            letter-spacing: 0 !important;
+            white-space: nowrap;
+        }
     `;
     document.head.appendChild(translateStyleEl);
 }
@@ -800,6 +916,83 @@ function removeTranslateStyle() {
         translateStyleEl.remove();
         translateStyleEl = null;
     }
+}
+
+// Gemini 模型 fallback 順序（翻譯、英文查詢共用）：
+// 3.5 Flash Lite → 3.1 Flash Lite → 3.1 Flash → 2.5 Flash Lite → 2.5 Flash → 2.5 Pro
+// 遇到 429（用量上限）或 404（模型 ID 不存在、已下架）換下一個
+const MODEL_FALLBACKS = [
+    { id: 'gemini-3.5-flash-lite', jsonMode: true },
+    { id: 'gemini-3.1-flash-lite', jsonMode: true },
+    { id: 'gemini-3.1-flash',      jsonMode: true },
+    { id: 'gemini-2.5-flash-lite', jsonMode: true },
+    { id: 'gemini-2.5-flash',      jsonMode: true },
+    { id: 'gemini-2.5-pro',        jsonMode: true },
+];
+
+// 英文語音查詢 → { keyword: 中文關鍵字, minute: 分鐘數或 null }；失敗回傳 null。
+// 把今天會議的原始中文（去空白，與 filterMeetingTable 比對的文字相同）一併給 Gemini，
+// 請它「從清單原樣抄出」最能代表查詢的片段：英文說 Director Lee → 抄出「李組長佳琪」，
+// 抄出的字一定是表格裡的子字串，現有搜尋必定比對得到，不靠 Gemini 憑空翻譯人名。
+async function englishQueryToSearch(queryText) {
+    const { translateApiKey } = await chrome.storage.local.get('translateApiKey');
+    if (!translateApiKey) {
+        console.warn('[語音助理] 英文查詢需要 Gemini API Key');
+        return null;
+    }
+
+    const rows = Array.from(document.querySelectorAll('.tbl-content table tbody tr'))
+        .map(row => rowZh(row).replace(/\s/g, ''));
+
+    const prompt =
+        `A visitor asked a meeting-room board, in English: ${JSON.stringify(queryText)}\n` +
+        `Today's meetings (Traditional Chinese, one string per meeting: time, name, location, host, ...):\n` +
+        JSON.stringify(rows) + `\n\n` +
+        `Return JSON {"keyword": string, "time": string|null}.\n` +
+        `- keyword: the shortest substring COPIED EXACTLY from the meeting strings above that identifies what the visitor wants ` +
+        `(a person's name/title, a meeting name, a room). For a floor return like "7f" (lowercase). ` +
+        `For tea/refreshments return "茶水", for computer return "電腦". Empty string if the request is only about time.\n` +
+        `- time: if the visitor mentions a time, 24-hour "HH:MM" (office hours 07:00-18:00; "2 o'clock" means 14:00); otherwise null.\n` +
+        `Output only the JSON object.`;
+
+    for (const model of MODEL_FALLBACKS) {
+        try {
+            const resp = await fetch(
+                `https://generativelanguage.googleapis.com/v1beta/models/${model.id}:generateContent?key=${translateApiKey}`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: prompt }] }],
+                        generationConfig: { temperature: 0, responseMimeType: 'application/json' }
+                    }),
+                    // 網路慢時不要一直停在「Understanding...」
+                    signal: AbortSignal.timeout(8000)
+                }
+            );
+            if (resp.status === 429 || resp.status === 404) continue;
+            const data = await resp.json();
+            if (!resp.ok || data.error) {
+                console.error('[語音助理] 英文查詢 API 錯誤：', resp.status, JSON.stringify(data));
+                return null;
+            }
+            const raw = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+            const obj = JSON.parse(raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, ''));
+            console.log('[語音助理] 英文查詢解析 (' + model.id + ')：', queryText, '→', obj);
+
+            const keyword = typeof obj.keyword === 'string' ? obj.keyword.replace(/\s/g, '').toLowerCase() : '';
+            const m = typeof obj.time === 'string' && obj.time.match(/^(\d{1,2}):(\d{2})$/);
+            const minute = m ? Number(m[1]) * 60 + Number(m[2]) : null;
+            return { keyword, minute };
+        } catch (e) {
+            if (e.name === 'TimeoutError') {
+                console.warn('[語音助理] 英文查詢逾時：', model.id);
+                return null; // 逾時多半是網路問題，換模型也一樣慢，直接放棄
+            }
+            console.warn('[語音助理] 英文查詢失敗，換下一個模型：', model.id, e);
+        }
+    }
+    return null;
 }
 
 // 翻譯／還原後輪播標題長度改變，請 redesign.js 重新判斷哪些要縮成兩行
@@ -850,16 +1043,7 @@ async function translateTableToEnglish(opts = {}) {
     const cells = [];
 
     // 1. 標題列：只翻頁面標題（.tbl-title = 「本日會議」）
-    //    .logo-title 已有英文副標「Taiwan Centers for Disease Control」，直接隱藏中文文字節點即可
-    document.querySelectorAll('.logo-title').forEach(el => {
-        const firstText = el.firstChild;
-        if (firstText && firstText.nodeType === Node.TEXT_NODE && firstText.textContent.trim()) {
-            if (!translatedItems.some(item => item.node === firstText)) {
-                translatedItems.push({ node: firstText, original: firstText.textContent });
-            }
-            firstText.textContent = ''; // 隱藏中文機關名稱，保留英文副標
-        }
-    });
+    //    .logo-title 的中文機關名稱保留不動（下方本來就有英文副標「Taiwan Centers for Disease Control」）
     document.querySelectorAll('.tbl-title').forEach(el => {
         if (el.innerText.trim()) cells.push(el);
     });
@@ -869,13 +1053,15 @@ async function translateTableToEnglish(opts = {}) {
         if (th.innerText.trim()) cells.push(th);
     });
 
-    // 3. 表格內容：2=名稱, 3=地點, 4=主持人, 5=備註（略過時間欄）
+    // 3. 表格內容：時間欄以外的文字欄。欄位會依側邊選單設定開關，不能寫死第幾欄；
+    //    改成跳過「不是純文字」的格子：事務準備圖示欄（.prep-icons，redesign.js 換成 SVG）、
+    //    視訊連線按鈕欄。這些格子若用 innerText 寫回譯文，圖示和按鈕會被整個蓋掉。
     //    翻譯全部列（含目前隱藏的），這樣搜尋後顯示出來也是英文
     document.querySelectorAll('.tbl-content table tbody tr').forEach(row => {
-        [2, 3, 4, 5].forEach(nth => {
-            const td = row.querySelector(`td:nth-child(${nth})`);
+        Array.from(row.querySelectorAll(':scope > td')).slice(1).forEach(td => {
+            if (td.classList.contains('prep-icons') || td.querySelector('button, img, svg, input')) return;
             // 用 dataset.zh（原始中文）判斷是否有內容，避免已翻譯過的列被誤判
-            if (td && (td.dataset.zh || td.innerText).trim()) cells.push(td);
+            if ((td.dataset.zh || td.innerText).trim()) cells.push(td);
         });
     });
 
@@ -911,15 +1097,6 @@ async function translateTableToEnglish(opts = {}) {
     let { translateCache } = await chrome.storage.local.get('translateCache');
     if (!translateCache || Object.keys(translateCache).length > TRANSLATE_CACHE_MAX) translateCache = {};
     const missing = [...new Set(texts.filter(t => t && translateCache[t] === undefined))];
-
-    // Fallback 順序：3.1 Flash Lite → 3.1 Flash → 2.5 Flash Lite → 2.5 Flash → 2.5 Pro
-    const MODEL_FALLBACKS = [
-        { id: 'gemini-3.1-flash-lite', jsonMode: true },
-        { id: 'gemini-3.1-flash',      jsonMode: true },
-        { id: 'gemini-2.5-flash-lite', jsonMode: true },
-        { id: 'gemini-2.5-flash',      jsonMode: true },
-        { id: 'gemini-2.5-pro',        jsonMode: true },
-    ];
 
     const prompt = `You are a translation engine. Translate each string in this JSON array from Traditional Chinese to English. ` +
         `Keep numbers, codes, room numbers (e.g. 7F, B1F) and names as-is. ` +
@@ -964,14 +1141,16 @@ async function translateTableToEnglish(opts = {}) {
                     body: JSON.stringify({
                         contents: [{ parts: [{ text: prompt }] }],
                         generationConfig: genConfig
-                    })
+                    }),
+                    // 整頁翻譯字數多，給 30 秒；逾時由外層 catch 走失敗流程，不會一直停在 Translating...
+                    signal: AbortSignal.timeout(30000)
                 }
             );
             const data = await resp.json();
 
             // 429 = 用量超過，換下一個模型
-            if (resp.status === 429) {
-                console.warn('[語音助理] 模型用量已達上限，切換至下一個：', model.id);
+            if (resp.status === 429 || resp.status === 404) {
+                console.warn('[語音助理] 模型用量已達上限或不存在（HTTP ' + resp.status + '），切換至下一個：', model.id);
                 continue;
             }
 

@@ -536,6 +536,24 @@
         return Math.max(scrollSpeed, 2); // 保底 2px/s，避免最後一點距離慢到停不下來
     }
 
+    // 語音搜尋顯示結果時由 content.js 呼叫：從頂端重新開始捲動（頂端只停 RESULT_PAUSE_TOP_MS），
+    // 回傳「捲完全部結果並在底部稍停」所需的毫秒數，content.js 據此決定結果要停留多久。
+    // 結果一個畫面放得下（不需要捲）時回傳 0。
+    const RESULT_PAUSE_TOP_MS = 2000;
+    const RESULT_PAUSE_BOTTOM_MS = 2000;
+    window.__meetingBoardShowFromTop = function () {
+        scrollPos = 0;
+        scrollSpeed = 0;
+        content.scrollTop = 0;
+        phase = 'pauseTop';
+        phaseUntil = performance.now() + RESULT_PAUSE_TOP_MS;
+
+        const max = content.scrollHeight - content.clientHeight;
+        if (max <= 0) return 0;
+        // 等速段 + 起步／煞停各多出約半個緩衝時間
+        return RESULT_PAUSE_TOP_MS + (max / SCROLL_PX_PER_SECOND) * 1000 + SCROLL_RAMP_S * 1000 + RESULT_PAUSE_BOTTOM_MS;
+    };
+
     function isAssistantActive() {
         const overlay = document.getElementById('assistant-overlay');
         return !!overlay && overlay.classList.contains('active-mode');
