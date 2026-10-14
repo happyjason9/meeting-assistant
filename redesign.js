@@ -318,11 +318,21 @@
     // 每 30 分鐘重抓一次，內容有變才重建。抓取失敗時沿用上次成功的內容
     // （存在 chrome.storage），網路短暫斷線時看板不會變空白。
     //
-    // 一次顯示一則，停留 TICKER_HOLD_MS 後淡入下一則。標題一行放不下的，
+    // 一次顯示一則，停留時間依字數決定（見 tickerHoldMs），再淡入下一則。標題一行放不下的，
     // 加上 .is-long 改用小字、最多兩行（見 style.css）。
     // 輪播區是 position:fixed 獨立於表格，更新它不影響 .tbl-content 的 scrollHeight。
     // ========================================================================
-    const TICKER_HOLD_MS = 3000;
+    // 停留時間 = 基本時間（注意到、把視線移過來）+ 每字閱讀時間，限制在最短～最長之間。
+    // 看板前的人多半是邊走邊瞄，閱讀速度抓得比坐著讀慢。
+    const TICKER_HOLD_BASE_MS = 2000;
+    const TICKER_HOLD_PER_CHAR_MS = 180;
+    const TICKER_HOLD_MIN_MS = 4000;
+    const TICKER_HOLD_MAX_MS = 12000;
+
+    function tickerHoldMs(title) {
+        const ms = TICKER_HOLD_BASE_MS + title.length * TICKER_HOLD_PER_CHAR_MS;
+        return Math.min(Math.max(ms, TICKER_HOLD_MIN_MS), TICKER_HOLD_MAX_MS);
+    }
     const TICKER_REFRESH_MS = 30 * 60 * 1000;
 
     let tickerViewport = null;
@@ -363,7 +373,7 @@
         if (key === tickerShownKey) return;
         tickerShownKey = key;
 
-        if (tickerTimer) clearInterval(tickerTimer);
+        if (tickerTimer) clearTimeout(tickerTimer);
         tickerViewport.textContent = '';
 
         const els = items.map(function (it) {
@@ -386,11 +396,15 @@
         let index = 0;
         els[0].classList.add('is-active');
         if (els.length < 2) return;
-        tickerTimer = setInterval(function () {
+
+        // 每則停留時間不同，用 setTimeout 串接而非 setInterval
+        function next() {
             els[index].classList.remove('is-active');
             index = (index + 1) % els.length;
             els[index].classList.add('is-active');
-        }, TICKER_HOLD_MS);
+            tickerTimer = setTimeout(next, tickerHoldMs(items[index].title));
+        }
+        tickerTimer = setTimeout(next, tickerHoldMs(items[0].title));
     }
 
     // RSS 的 guid 是發布時間（如 2026-10-13-14-00-00），取月/日顯示
