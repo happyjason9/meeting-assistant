@@ -11,12 +11,6 @@
    動態插入 —— content script CSS 裡的相對路徑是相對於「網頁本身」解析的，
    不是相對於 extension 目錄，寫在這裡會 404。 */
 
-/* 供邊框流光動畫使用的可動畫角度屬性 */
-@property --angle {
-    syntax: "<angle>";
-    initial-value: 0deg;
-    inherits: false;
-}
 
 :root {
     --bg: #0b0714;                              /* 近黑帶紫的底色 */
@@ -180,15 +174,18 @@ body {
         margin-right: 24px;
     }
 
+    /* 切換方向一致往上流動：舊的往上離開（.is-leaving，加速 0.3 秒），
+       新的從下方升上來落定（.is-active，減速 0.6 秒；看板距離遠，進場比一般網頁長）。
+       待命位置在下方（translateY -20%），置中是 -50%，離場到上方 -80% */
     .epi-ticker-item {
         position: absolute;
         left: 0;
         right: 0;
         top: 50%;
-        transform: translateY(-30%);
+        transform: translateY(-20%);
         opacity: 0;
-        transition: opacity 0.45s cubic-bezier(0.22, 1, 0.36, 1),
-                    transform 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+        transition: opacity 0.6s cubic-bezier(0.2, 0, 0, 1),
+                    transform 0.6s cubic-bezier(0.2, 0, 0, 1);
         color: var(--ink);
         font-size: 30px;
         font-weight: 600;
@@ -201,6 +198,13 @@ body {
         .epi-ticker-item.is-active {
             opacity: 1;
             transform: translateY(-50%);
+        }
+
+        .epi-ticker-item.is-leaving {
+            opacity: 0;
+            transform: translateY(-80%);
+            transition-duration: 0.3s;
+            transition-timing-function: cubic-bezier(0.3, 0, 1, 1);
         }
 
         /* 標題一行放不下：縮小字級、最多兩行，再超過才用「…」截斷 */
@@ -261,9 +265,18 @@ body {
         height: 36px;
     }
 
-    /* 聆聽中：麥克風外圈綠色呼吸光暈，吸引路過的人注意 */
-    #assistant-overlay:not(.active-mode) .mic-circle.listening {
-        animation: voice-dock-breathe 2.4s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+    /* 聆聽中：麥克風外圈綠色呼吸光暈，吸引路過的人注意。
+       光暈畫在 ::after 上固定不變，動畫只改它的 opacity 與 scale（GPU 合成），
+       不直接動 box-shadow（每幀重畫）。2.5 秒一循環，跟會議綠燈（3.5 秒）錯開 */
+    #assistant-overlay:not(.active-mode) .mic-circle.listening::after {
+        content: "";
+        position: absolute;
+        inset: -4px;
+        border-radius: 50%;
+        box-shadow: 0 0 26px 8px rgba(40, 167, 69, 0.75);
+        pointer-events: none;
+        animation: voice-dock-breathe 2.5s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+        will-change: opacity, transform;
     }
 
     #assistant-overlay:not(.active-mode) #assistant-status {
@@ -284,8 +297,8 @@ body {
     }
 
 @keyframes voice-dock-breathe {
-    0%, 100% { box-shadow: 0 0 10px 0 rgba(40, 167, 69, 0.45); }
-    50%      { box-shadow: 0 0 26px 8px rgba(40, 167, 69, 0.75); }
+    0%, 100% { opacity: 0.35; transform: scale(0.94); }
+    50%      { opacity: 1;    transform: scale(1.04); }
 }
 
 /* 署徽：保持原色，墊白色圓形基座 + 玻璃光環（深色 UI 放彩色標誌的標準手法） */
@@ -468,32 +481,47 @@ th, .tbl-content td {
                 0 0 30px color-mix(in srgb, var(--a, var(--accent)) 28%, transparent);
 }
 
-/* 繞邊流光：只在「進行中」的會議列上跑（.meeting-now 由 redesign.js
-   比對會議時間與現在時間後加上），旋轉 conic-gradient 光環，遮罩留 2px 邊框環 */
-.tbl-content tbody tr.meeting-now::before {
-    content: "";
+/* 繞邊流光：只在「進行中」的會議列上跑。
+   redesign.js 在 .meeting-now 列裡插入 <span class="beam"><span class="beam-spin"></span></span>：
+   - .beam：貼齊整列，用遮罩只留 3px 外框環
+   - .beam-spin：外框環裡一塊放大的 conic-gradient 方塊，用 transform 旋轉
+   原本是直接旋轉 conic-gradient 的角度（@property --angle），每幀都要重畫漸層＋遮罩，
+   進行中會議一多（上午常有 5～10 場）就很吃效能；改轉 transform 可交給 GPU 合成，畫面不變。 */
+.tbl-content tbody tr .beam {
     position: absolute;
     inset: 0;
     border-radius: var(--radius);
     padding: 3px;
-    background: conic-gradient(from var(--angle),
-        transparent 0%,
-        transparent 72%,
-        color-mix(in srgb, var(--a, var(--accent)) 60%, transparent) 84%,
-        #ffffff 92%,
-        var(--a, var(--accent)) 97%,
-        transparent 100%);
+    overflow: hidden;
     -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
     -webkit-mask-composite: xor;
     mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
     mask-composite: exclude;
     pointer-events: none;
     z-index: 1;
-    animation: border-beam 6s linear infinite;
 }
 
+    /* 邊長取列寬的 1.2 倍，旋轉到任何角度都蓋得住整列（列又寬又矮） */
+    .tbl-content tbody tr .beam-spin {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 120%;
+        aspect-ratio: 1;
+        transform: translate(-50%, -50%) rotate(0deg);
+        background: conic-gradient(
+            transparent 0%,
+            transparent 72%,
+            color-mix(in srgb, var(--a, var(--accent)) 60%, transparent) 84%,
+            #ffffff 92%,
+            var(--a, var(--accent)) 97%,
+            transparent 100%);
+        animation: border-beam 6s linear infinite; /* 連續旋轉用 linear 才等速 */
+        will-change: transform;
+    }
+
 @keyframes border-beam {
-    to { --angle: 360deg; }
+    to { transform: translate(-50%, -50%) rotate(360deg); }
 }
 
 /* iPhone 毛玻璃卡片：整列一體成型的半透明玻璃，背景光暈透出並被模糊
@@ -598,7 +626,7 @@ th, .tbl-content td {
         .tbl-content tr.meeting-now td:nth-child(2)::before {
             background: #30d158;
             box-shadow: 0 0 10px rgba(48, 209, 88, 0.8);
-            animation: dot-pulse 2.4s ease-in-out infinite;
+            animation: dot-pulse 3.5s cubic-bezier(0.45, 0, 0.55, 1) infinite;
         }
 
         .tbl-content tr.meeting-past td:nth-child(2)::before {
@@ -606,16 +634,11 @@ th, .tbl-content td {
             box-shadow: 0 0 10px rgba(255, 69, 58, 0.7);
         }
 
-/* 綠點低頻呼吸閃爍：亮 → 暗 → 亮，2.4 秒一循環 */
+/* 綠點低頻呼吸：只動 opacity（GPU 合成，不每幀重畫光暈），亮度 100% ↔ 60%。
+   3.5 秒一循環，刻意跟語音列麥克風（2.5 秒）錯開，兩者不會看起來同步閃 */
 @keyframes dot-pulse {
-    0%, 100% {
-        opacity: 1;
-        box-shadow: 0 0 12px rgba(48, 209, 88, 0.9);
-    }
-    50% {
-        opacity: 0.35;
-        box-shadow: 0 0 4px rgba(48, 209, 88, 0.3);
-    }
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.6; }
 }
 
     /* 次要欄位（會議地點、主持人、承辦單位...）：字級不變，白色加粗

@@ -14,7 +14,25 @@ style.textContent = `
         color: white; border-radius: 16px; z-index: 999999;
         font-family: 'Noto Sans TC', sans-serif; text-align: center;
         display: flex; flex-direction: column; align-items: center;
-        transition: all 0.6s cubic-bezier(0.22, 1, 0.36, 1); cursor: pointer;
+        /* 位置在「角落／底部」與「畫面中央」之間切換時，top/left 從 auto 變數值無法過渡，
+           原本 transition: all 只會讓寬度、背景慢慢變、位置卻瞬間跳，看起來卡。
+           改成位置直接切換，靠下面的 keyframes 做進場：中央放大淡入、回到待命位置淡入 */
+        transition: background 0.2s ease; cursor: pointer;
+        animation: assistant-dock-in 0.3s cubic-bezier(0.2, 0, 0, 1);
+    }
+
+    #assistant-overlay.active-mode {
+        animation: assistant-modal-in 0.45s cubic-bezier(0.05, 0.7, 0.1, 1);
+    }
+
+    @keyframes assistant-modal-in {
+        from { opacity: 0; transform: translate(-50%, -50%) scale(0.92); }
+        to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    }
+
+    @keyframes assistant-dock-in {
+        from { opacity: 0; }
+        to   { opacity: 1; }
     }
 
     #assistant-overlay.active-mode {

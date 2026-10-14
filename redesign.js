@@ -240,6 +240,22 @@
     // ========================================================================
     const SOON_THRESHOLD_MINS = 15;
 
+    // 進行中會議的繞邊流光（樣式見 style.css .beam）。position:absolute 不佔版面，
+    // 加在列的最後面，不影響 td:nth-child 的欄位索引（翻譯、事務準備圖示都靠它）。
+    function syncBeam(row, on) {
+        const beam = row.querySelector(':scope > .beam');
+        if (on && !beam) {
+            const el = document.createElement('span');
+            el.className = 'beam';
+            const spin = document.createElement('span');
+            spin.className = 'beam-spin';
+            el.appendChild(spin);
+            row.appendChild(el);
+        } else if (!on && beam) {
+            beam.remove();
+        }
+    }
+
     function updateActiveMeetings() {
         const now = new Date();
         const nowMins = now.getHours() * 60 + now.getMinutes();
@@ -265,6 +281,7 @@
             row.classList.toggle('meeting-now', state === 'active');
             row.classList.toggle('meeting-soon', state === 'soon');
             row.classList.toggle('meeting-past', state === 'past');
+            syncBeam(row, state === 'active');
             if (state !== 'past') allPast = false;
         });
 
@@ -410,11 +427,17 @@
         els[0].classList.add('is-active');
         if (els.length < 2) return;
 
-        // 每則停留時間不同，用 setTimeout 串接而非 setInterval
+        // 每則停留時間不同，用 setTimeout 串接而非 setInterval。
+        // 舊的先往上離場（0.3 秒），0.15 秒後新的從下方進場，兩者稍微重疊，交接不留空檔。
         function next() {
-            els[index].classList.remove('is-active');
+            const prev = els[index];
+            prev.classList.remove('is-active');
+            prev.classList.add('is-leaving');
+            setTimeout(function () { prev.classList.remove('is-leaving'); }, 300);
+
             index = (index + 1) % els.length;
-            els[index].classList.add('is-active');
+            const cur = els[index];
+            setTimeout(function () { cur.classList.add('is-active'); }, 150);
             tickerTimer = setTimeout(next, tickerHoldMs(items[index].title));
         }
         tickerTimer = setTimeout(next, tickerHoldMs(items[0].title));
@@ -493,6 +516,20 @@
     // 每幀只移動零點幾 px，在像素比 1 的螢幕上 Chrome 會把 scrollTop 捨入成整數，
     // 「讀回來 + 0.5」每次都被捨回原值，畫面就永遠卡在頂端不動。
     let scrollPos = 0;
+    // 起步／停止的緩衝：速度在 SCROLL_RAMP_S 秒內從 0 加到 SCROLL_PX_PER_SECOND，
+    // 接近終點時以同樣的減速度煞停，不再瞬間起停。
+    const SCROLL_RAMP_S = 0.8;
+    let scrollSpeed = 0;
+
+    function stepScrollSpeed(remaining, dt) {
+        const accel = SCROLL_PX_PER_SECOND / SCROLL_RAMP_S;
+        scrollSpeed = Math.min(
+            scrollSpeed + accel * dt,                        // 加速中
+            SCROLL_PX_PER_SECOND,                            // 等速巡航
+            Math.sqrt(2 * accel * Math.max(remaining, 0))    // 剩餘距離剛好煞得停的速度
+        );
+        return Math.max(scrollSpeed, 2); // 保底 2px/s，避免最後一點距離慢到停不下來
+    }
 
     function isAssistantActive() {
         const overlay = document.getElementById('assistant-overlay');
@@ -534,11 +571,12 @@
                 if (scrollPos >= max - 1) {
                     scrollPos = max;                   // 貼齊底部
                     content.scrollTop = scrollPos;
+                    scrollSpeed = 0;
                     phase = 'pauseBottom';
                     phaseUntil = ts + PAUSE_AT_BOTTOM_MS;
                     onPause();
                 } else {
-                    scrollPos = Math.min(scrollPos + SCROLL_PX_PER_SECOND * dt, max);
+                    scrollPos = Math.min(scrollPos + stepScrollSpeed(max - scrollPos, dt) * dt, max);
                     content.scrollTop = scrollPos;
                 }
                 break;
@@ -551,11 +589,12 @@
                 if (scrollPos <= 1) {
                     scrollPos = 0;                     // 貼齊頂部
                     content.scrollTop = 0;
+                    scrollSpeed = 0;
                     phase = 'pauseTop';
                     phaseUntil = ts + PAUSE_AT_TOP_MS;
                     onPause();
                 } else {
-                    scrollPos = Math.max(scrollPos - SCROLL_PX_PER_SECOND * dt, 0);
+                    scrollPos = Math.max(scrollPos - stepScrollSpeed(scrollPos, dt) * dt, 0);
                     content.scrollTop = scrollPos;
                 }
                 break;
