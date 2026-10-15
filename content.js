@@ -288,6 +288,26 @@ function stopRecognition() {
     }
 }
 
+// 語言切換指令 → 'en' | 'zh' | null
+// - 完整指令（翻譯成英文、翻譯成中文…）：句中出現就算，辨識中途（interim）就可以觸發
+// - 單一詞（英文、中文、English、Chinese、Switch to Chinese）：日常對話很常出現（「英文課」「中文版」），
+//   所以要等一句話講完（isFinal），且整句很短才算，避免旁人聊天誤觸發：
+//   含中文的句子 ≤ 5 字（「英文」「切換英文」「切換成英文」），純英文 ≤ 20 字母（「Switch to Chinese」= 15）
+function detectLangCommand(transcript, isFinal) {
+    if (/翻譯成?英文/.test(transcript)) return 'en';
+    if (/翻譯成?中文|顯示中文|還原中文/.test(transcript)) return 'zh';
+    if (!isFinal) return null;
+
+    const cleaned = transcript.replace(/[\s。，、,.!?！？]/g, '').toLowerCase();
+    const hasCjk = /[\u4e00-\u9fff]/.test(cleaned);
+    if (cleaned.length > (hasCjk ? 5 : 20)) return null;
+    const en = /英文|english/.test(cleaned);
+    const zh = /中文|chinese/.test(cleaned);
+    if (en && !zh) return 'en';
+    if (zh && !en) return 'zh';
+    return null; // 兩個都有（如「中文翻英文」）語意不明，不動作
+}
+
 function startRecognition(_mode) {
     if (isRecognitionActive) return;
 
@@ -360,17 +380,20 @@ function startRecognition(_mode) {
 
         if (currentTranscript.trim()) subText.innerText = currentTranscript;
 
+        const langCommand = currentState === 'listening' ? detectLangCommand(currentTranscript, isFinal) : null;
+
         if (currentState === 'listening') {
-            if (currentTranscript.includes("翻譯成英文") || currentTranscript.includes("翻譯英文")) {
+            if (langCommand === 'en') {
                 if (silenceTimer) clearTimeout(silenceTimer);
-                if (isTranslating) return; // 翻譯進行中，忽略重複指令
+                // 已經是英文、或正在翻譯中：不重複翻譯（避免畫面又跳一次 Translating...）
+                if (isTranslateMode || isTranslating) return;
                 setTranslateMode(true);
                 currentState = 'transitioning';
                 stopRecognition();
                 translateTableToEnglish(); // 立即整頁翻譯
-            } else if (currentTranscript.includes("翻譯成中文") || currentTranscript.includes("翻譯中文") || currentTranscript.includes("顯示中文") || currentTranscript.includes("還原中文")
-                       || (isTranslateMode && /\bchinese\b/i.test(currentTranscript))) {
+            } else if (langCommand === 'zh') {
                 if (silenceTimer) clearTimeout(silenceTimer);
+                if (!isTranslateMode) return; // 已經是中文
                 setTranslateMode(false);
                 restoreOriginalText();
             } else if (currentTranscript.includes("找會議") || currentTranscript.includes("查詢") || currentTranscript.includes("查一下") || currentTranscript.includes("找一下")) {
