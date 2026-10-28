@@ -35,12 +35,12 @@
     // 動態插入一個 <style> 標籤。
     // ========================================================================
     (function loadCustomFont() {
-        const fontUrl = chrome.runtime.getURL('assets/font/Iansui-Regular.ttf');
+        const fontUrl = chrome.runtime.getURL('assets/font/Iansui-Regular.woff2');
         const styleEl = document.createElement('style');
         styleEl.textContent =
             '@font-face {' +
             '  font-family: "Iansui";' +
-            '  src: url("' + fontUrl + '") format("truetype");' +
+            '  src: url("' + fontUrl + '") format("woff2");' +
             '  font-weight: 400;' +
             '  font-display: swap;' +
             '}';

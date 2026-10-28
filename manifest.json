@@ -42,7 +42,7 @@
     "web_accessible_resources": [
         {
             "resources": [
-                "assets/font/Iansui-Regular.ttf",
+                "assets/font/Iansui-Regular.woff2",
                 "assets/icons/icon-svg/*.svg",
                 "assets/photos/*.png",
                 "assets/halloween/*.svg"
