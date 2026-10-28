@@ -1,0 +1,386 @@
+/* ==========================================================================
+   萬聖節主題（halloween.js 依日期在 <html> 加上 .theme-halloween 才生效）
+   1. 配色：主色由紫換成南瓜橘＋紫；會議狀態燈（灰/黃/綠/紅）與卡片狀態色不動，避免看錯
+   2. 南瓜燈：標題「本日會議」左邊一顆、約四成的會議卡片上緣隨機擺一顆（燭光閃爍只動 opacity）
+   3. 偶爾從標題列飛過的蝙蝠（halloween.js，Web Animations，只動 transform）
+   4. 卡片後面的月亮與薄霧（霧只動 transform；會讓毛玻璃卡片持續重算模糊，霧刻意很慢、很淡）
+   5. 今日會議結束的空狀態改成南瓜燈 + Happy Halloween
+   6. 蜘蛛網（只有網、沒有蜘蛛）：約三成卡片角落一張小網
+   7. 詭異藤蔓：約兩成卡片從側邊爬下、繞過下方圓角沿下緣蔓延
+   南瓜圖：assets/halloween/pumpkin.svg（下方 data URI 由它產生；content script CSS 的相對路徑
+   會以網頁為基準解析，不能直接 url() 指到 extension 內的檔案）
+   ========================================================================== */
+
+/* ---- 1. 配色 ---- */
+.theme-halloween {
+    --accent: #f97316;
+    --accent-bright: #fdba74;
+    --accent-grad: linear-gradient(135deg, #f97316, #a855f7);
+    --glass-border: rgba(249, 140, 60, 0.26);
+    --glow: 0 0 24px rgba(249, 115, 22, 0.28);
+    --pumpkin: url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 92%22%3E%3Cpath d=%22M50 22 C49 14 51 9 56 6%22 fill=%22none%22 stroke=%22%234d6b2a%22 stroke-width=%226%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M55 12 C64 6 72 9 74 15 C67 15 61 15 55 12 Z%22 fill=%22%236f9a3a%22/%3E%3Cellipse cx=%2231%22 cy=%2256%22 rx=%2223%22 ry=%2229%22 fill=%22%23e8651a%22/%3E%3Cellipse cx=%2269%22 cy=%2256%22 rx=%2223%22 ry=%2229%22 fill=%22%23e8651a%22/%3E%3Cellipse cx=%2250%22 cy=%2255%22 rx=%2225%22 ry=%2231%22 fill=%22%23fb8b24%22/%3E%3Cellipse cx=%2242%22 cy=%2242%22 rx=%226%22 ry=%2210%22 fill=%22%23ffad5c%22 opacity=%220.55%22/%3E%3Cpath d=%22M29 51 L41 51 L35 39 Z%22 fill=%22%23ffe18a%22/%3E%3Cpath d=%22M59 51 L71 51 L65 39 Z%22 fill=%22%23ffe18a%22/%3E%3Cpath d=%22M47 58 L53 58 L50 53 Z%22 fill=%22%23ffe18a%22/%3E%3Cpath d=%22M28 64 Q50 84 72 64 L66 66 L62 62 L57 68 L50 63 L43 68 L38 62 L34 66 Z%22 fill=%22%23ffe18a%22/%3E%3C/svg%3E");
+    /* 卡片上的陰森南瓜（halloween.js 依會議名稱三選一）：同一張圖換色 */
+    /* 腐爛暗橘、紅光 */
+    --pumpkin-rotten: url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 92%22%3E%3Cpath d=%22M50 22 C49 14 51 9 56 6%22 fill=%22none%22 stroke=%22%233a3020%22 stroke-width=%226%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M55 12 C64 6 72 9 74 15 C67 15 61 15 55 12 Z%22 fill=%22%235a5a2a%22/%3E%3Cellipse cx=%2231%22 cy=%2256%22 rx=%2223%22 ry=%2229%22 fill=%22%237a2e0e%22/%3E%3Cellipse cx=%2269%22 cy=%2256%22 rx=%2223%22 ry=%2229%22 fill=%22%237a2e0e%22/%3E%3Cellipse cx=%2250%22 cy=%2255%22 rx=%2225%22 ry=%2231%22 fill=%22%239a3d12%22/%3E%3Cellipse cx=%2242%22 cy=%2242%22 rx=%226%22 ry=%2210%22 fill=%22%23c0612e%22 opacity=%220.55%22/%3E%3Cpath d=%22M29 51 L41 51 L35 39 Z%22 fill=%22%23ff5a2a%22/%3E%3Cpath d=%22M59 51 L71 51 L65 39 Z%22 fill=%22%23ff5a2a%22/%3E%3Cpath d=%22M47 58 L53 58 L50 53 Z%22 fill=%22%23ff5a2a%22/%3E%3Cpath d=%22M28 64 Q50 84 72 64 L66 66 L62 62 L57 68 L50 63 L43 68 L38 62 L34 66 Z%22 fill=%22%23ff5a2a%22/%3E%3C/svg%3E");
+    /* 黑南瓜、毒綠光 */
+    --pumpkin-black: url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 92%22%3E%3Cpath d=%22M50 22 C49 14 51 9 56 6%22 fill=%22none%22 stroke=%22%232b3a1c%22 stroke-width=%226%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M55 12 C64 6 72 9 74 15 C67 15 61 15 55 12 Z%22 fill=%22%233e5226%22/%3E%3Cellipse cx=%2231%22 cy=%2256%22 rx=%2223%22 ry=%2229%22 fill=%22%231a1424%22/%3E%3Cellipse cx=%2269%22 cy=%2256%22 rx=%2223%22 ry=%2229%22 fill=%22%231a1424%22/%3E%3Cellipse cx=%2250%22 cy=%2255%22 rx=%2225%22 ry=%2231%22 fill=%22%232a2036%22/%3E%3Cellipse cx=%2242%22 cy=%2242%22 rx=%226%22 ry=%2210%22 fill=%22%234a3a5c%22 opacity=%220.55%22/%3E%3Cpath d=%22M29 51 L41 51 L35 39 Z%22 fill=%22%239cff57%22/%3E%3Cpath d=%22M59 51 L71 51 L65 39 Z%22 fill=%22%239cff57%22/%3E%3Cpath d=%22M47 58 L53 58 L50 53 Z%22 fill=%22%239cff57%22/%3E%3Cpath d=%22M28 64 Q50 84 72 64 L66 66 L62 62 L57 68 L50 63 L43 68 L38 62 L34 66 Z%22 fill=%22%239cff57%22/%3E%3C/svg%3E");
+    /* 紫南瓜、鬼火藍 */
+    --pumpkin-purple: url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 92%22%3E%3Cpath d=%22M50 22 C49 14 51 9 56 6%22 fill=%22none%22 stroke=%22%232f3b45%22 stroke-width=%226%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M55 12 C64 6 72 9 74 15 C67 15 61 15 55 12 Z%22 fill=%22%233f5560%22/%3E%3Cellipse cx=%2231%22 cy=%2256%22 rx=%2223%22 ry=%2229%22 fill=%22%233e2766%22/%3E%3Cellipse cx=%2269%22 cy=%2256%22 rx=%2223%22 ry=%2229%22 fill=%22%233e2766%22/%3E%3Cellipse cx=%2250%22 cy=%2255%22 rx=%2225%22 ry=%2231%22 fill=%22%235b3a8a%22/%3E%3Cellipse cx=%2242%22 cy=%2242%22 rx=%226%22 ry=%2210%22 fill=%22%237d5cb0%22 opacity=%220.55%22/%3E%3Cpath d=%22M29 51 L41 51 L35 39 Z%22 fill=%22%237ef9ff%22/%3E%3Cpath d=%22M59 51 L71 51 L65 39 Z%22 fill=%22%237ef9ff%22/%3E%3Cpath d=%22M47 58 L53 58 L50 53 Z%22 fill=%22%237ef9ff%22/%3E%3Cpath d=%22M28 64 Q50 84 72 64 L66 66 L62 62 L57 68 L50 63 L43 68 L38 62 L34 66 Z%22 fill=%22%237ef9ff%22/%3E%3C/svg%3E");
+}
+
+.theme-halloween body {
+    background-image:
+        radial-gradient(ellipse 60% 40% at 20% 0%, rgba(139, 92, 246, 0.16), transparent),
+        radial-gradient(ellipse 55% 45% at 80% 100%, rgba(249, 115, 22, 0.13), transparent),
+        linear-gradient(rgba(168, 120, 255, 0.05) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(168, 120, 255, 0.05) 1px, transparent 1px) !important;
+}
+
+.theme-halloween .tbl-title {
+    background: linear-gradient(135deg, #ffd7a8, #fb923c, #c084fc);
+    -webkit-background-clip: text;
+    background-clip: text;
+    filter: drop-shadow(0 0 14px rgba(249, 115, 22, 0.45));
+    align-items: center;
+}
+
+/* ---- 2. 標題旁的南瓜燈 ----
+   用 ::before / ::after 而不是插入元素：英文模式會用 innerText 改寫標題文字，插入的元素會被洗掉 */
+.theme-halloween .tbl-title::before {
+    content: "";
+    display: inline-block;   /* 原站 .tbl-title 是 flex；保險起見非 flex 時也能顯示 */
+    vertical-align: middle;
+    flex: 0 0 auto;
+    width: 46px;
+    height: 42px;
+    margin-right: 14px;
+    background: var(--pumpkin) center / contain no-repeat;
+    -webkit-background-clip: border-box;
+    background-clip: border-box;
+}
+
+/* 燭光：南瓜後面一團暖光，不規則閃爍（只動 opacity） */
+.theme-halloween .tbl-title::after {
+    content: "";
+    position: absolute;
+    left: -16px;
+    top: 50%;
+    width: 78px;
+    height: 78px;
+    margin-top: -39px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(255, 196, 92, 0.55), rgba(255, 140, 40, 0.18) 45%, transparent 70%);
+    -webkit-background-clip: border-box;
+    background-clip: border-box;
+    z-index: -1;
+    pointer-events: none;
+    animation: candle-flicker 3.2s linear infinite;
+}
+
+@keyframes candle-flicker {
+    0%   { opacity: 0.55; }
+    8%   { opacity: 0.85; }
+    12%  { opacity: 0.6; }
+    22%  { opacity: 0.95; }
+    35%  { opacity: 0.7; }
+    48%  { opacity: 0.9; }
+    60%  { opacity: 0.62; }
+    74%  { opacity: 1; }
+    86%  { opacity: 0.72; }
+    100% { opacity: 0.55; }
+}
+
+/* ---- 3. 蝙蝠（halloween.js 建立與排程） ---- */
+.halloween-bat {
+    position: fixed;
+    left: 0;
+    top: 0;
+    width: 100px;           /* 實際大小由 halloween.js 依 BAT_SIZE_PX 隨機設定 */
+    z-index: 11;            /* 標題列的蝙蝠在標題列（z 10）之上；卡片區的由 halloween.js 用 zIndex 影格決定前後 */
+    pointer-events: none;
+    transform-origin: 50% 40%;   /* 飛行時的傾斜繞身體轉 */
+    will-change: transform;
+}
+
+    /* 身體隨拍翅起伏：下拍時被抬高、上拍時往下掉，跟翅膀同一個節拍（共用 duration 與 delay） */
+    .halloween-bat .bat-bob {
+        animation: bat-bob var(--flap-dur, 0.3s) linear infinite;
+        animation-delay: var(--flap-delay, 0s);
+    }
+
+    .halloween-bat svg {
+        display: block;
+        width: 100%;
+        height: auto;
+        overflow: visible;
+    }
+
+    /* 月光描邊：卡片是半透明紫色毛玻璃，深紫蝙蝠飛到後面會整隻融掉；
+       亮邊讓牠在玻璃後面還看得出輪廓。用 stroke 不用 drop-shadow（filter 每次拍翅都要重算） */
+    .halloween-bat svg path,
+    .halloween-bat svg ellipse,
+    .halloween-bat svg circle:not([fill="#ffb347"]) {
+        stroke: #c9a8ff;
+        stroke-width: 2.5;
+        stroke-linejoin: round;
+        paint-order: stroke;
+    }
+
+    /* 拍翅：翅膀繞肩膀旋轉，下拍快（約 40%）、上拍慢並把翅膀收窄，
+       再加一點 scaleY 模擬翅膀轉到上下兩端時的透視壓縮 */
+    .halloween-bat .bat-wing {
+        animation-duration: var(--flap-dur, 0.3s);
+        animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1);
+        animation-iteration-count: infinite;
+        animation-delay: var(--flap-delay, 0s);
+    }
+
+    .halloween-bat .bat-wing-l { transform-origin: 54px 30px; animation-name: bat-flap-l; }
+    .halloween-bat .bat-wing-r { transform-origin: 66px 30px; animation-name: bat-flap-r; }
+
+@keyframes bat-flap-l {
+    0%   { transform: rotate(30deg) scale(1, 0.85); }
+    40%  { transform: rotate(-26deg) scale(1, 0.8); }
+    70%  { transform: rotate(2deg) scale(0.7, 0.6); }
+    100% { transform: rotate(30deg) scale(1, 0.85); }
+}
+
+@keyframes bat-flap-r {
+    0%   { transform: rotate(-30deg) scale(1, 0.85); }
+    40%  { transform: rotate(26deg) scale(1, 0.8); }
+    70%  { transform: rotate(-2deg) scale(0.7, 0.6); }
+    100% { transform: rotate(-30deg) scale(1, 0.85); }
+}
+
+@keyframes bat-bob {
+    0%   { transform: translateY(3px); }
+    40%  { transform: translateY(-4px); }
+    100% { transform: translateY(3px); }
+}
+
+/* ---- 4. 月亮與薄霧（halloween.js 建立 .halloween-sky） ----
+   疊在背景與卡片之間：表格區、表頭要比它高一層 */
+.theme-halloween .tbl-content {
+    position: relative;
+    z-index: 1;
+}
+
+.theme-halloween .tbl-header {
+    position: relative;
+}
+
+.halloween-sky {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    overflow: hidden;
+}
+
+    .halloween-moon {
+        position: absolute;
+        top: 18%;
+        right: 8%;
+        width: 240px;
+        height: 240px;
+        border-radius: 50%;
+        background:
+            radial-gradient(circle at 62% 38%, rgba(214, 170, 100, 0.35) 0 9%, transparent 10%),
+            radial-gradient(circle at 36% 62%, rgba(214, 170, 100, 0.3) 0 7%, transparent 8%),
+            radial-gradient(circle at 58% 70%, rgba(214, 170, 100, 0.25) 0 5%, transparent 6%),
+            radial-gradient(circle at 40% 38%, #fff6dc, #f8dc94 55%, #e9b45a);
+        box-shadow: 0 0 60px 10px rgba(255, 210, 130, 0.45);
+        opacity: 0.55;
+    }
+
+    /* 月暈：月亮外圍一大圈暖光，緩慢呼吸（只動 opacity） */
+    .halloween-moon-halo {
+        position: absolute;
+        top: calc(18% - 140px);
+        right: calc(8% - 140px);
+        width: 520px;
+        height: 520px;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(255, 214, 140, 0.35), rgba(255, 170, 80, 0.12) 40%, transparent 68%);
+        animation: moon-glow 6s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+    }
+
+    /* 枯樹剪影：右下高大一棵（枝幹伸到月亮前面），左下矮一棵；站在底部資訊列上方 */
+    /* 樹被月光與南瓜燈照亮：亮紫色＋暖橘、紫兩層光暈。
+       光暈固定不動（filter 動畫會讓整棵樹每幀重繪，太吃效能） */
+    .halloween-tree {
+        position: absolute;
+        bottom: var(--voice-dock-h);
+        opacity: 0.95;
+        filter: drop-shadow(0 0 4px rgba(255, 180, 90, 0.55))
+                drop-shadow(0 0 16px rgba(192, 132, 252, 0.45));
+    }
+
+    /* 高度用 vh：直立螢幕又窄又高，用寬度算樹會太矮、碰不到月亮（月亮在 top 18%） */
+    .halloween-tree-tall {
+        right: -4%;
+        height: 62vh;
+        width: auto;
+    }
+
+    .halloween-tree-small {
+        left: -4%;
+        height: 30vh;
+        width: auto;
+    }
+
+    /* 霧：兩層寬 200% 的柔光帶，以 50% 寬為週期重複，往左平移 50% 後無縫接回 */
+    .halloween-fog {
+        position: absolute;
+        left: 0;
+        width: 200%;
+        height: 45%;
+        background-image: radial-gradient(ellipse 30% 50% at 30% 50%, rgba(200, 180, 255, 0.07), transparent 70%),
+                          radial-gradient(ellipse 25% 40% at 75% 60%, rgba(255, 190, 140, 0.05), transparent 70%);
+        background-size: 50% 100%;
+        background-repeat: repeat-x;
+        will-change: transform;
+    }
+
+    .halloween-fog-1 {
+        bottom: 8%;
+        animation: fog-drift 90s linear infinite;
+    }
+
+    .halloween-fog-2 {
+        bottom: 30%;
+        opacity: 0.8;
+        animation: fog-drift 140s linear infinite reverse;
+    }
+
+@keyframes moon-glow {
+    0%, 100% { opacity: 0.6; }
+    50%      { opacity: 1; }
+}
+
+@keyframes fog-drift {
+    from { transform: translateX(0); }
+    to   { transform: translateX(-50%); }
+}
+
+/* ---- 會議卡片上的南瓜燈 ----
+   哪些卡片有南瓜、擺在哪、多大、歪幾度，由 halloween.js 依會議名稱算出固定的亂數，
+   寫進 data-pumpkin 與 --pk-* 變數：看起來隨手擺放、沒有規律，但同一場會議每次 reload 位置相同，不會亂跳。
+   擺在卡片上緣（下半部壓在卡片邊框、上半部落在卡片間 30px 的空隙）；文字垂直置中，上緣本來就空著。
+   ::before = 燭光（只動 opacity 閃爍）、::after = 南瓜 */
+.theme-halloween .tbl-content tbody tr[data-pumpkin]::before,
+.theme-halloween .tbl-content tbody tr[data-pumpkin]::after {
+    content: "";
+    position: absolute;
+    pointer-events: none;
+    z-index: 2;
+}
+
+/* 南瓜：寬 --pk-size，左緣在 --pk-x，微微傾斜 --pk-tilt */
+.theme-halloween .tbl-content tbody tr[data-pumpkin]::after {
+    left: var(--pk-x);
+    width: var(--pk-size);
+    height: calc(var(--pk-size) * 0.92);
+    top: calc(var(--pk-size) * -0.6);
+    transform: rotate(var(--pk-tilt));
+    background: var(--pumpkin) center / contain no-repeat;
+}
+
+/* 燭光：置中於南瓜，直徑 2 倍南瓜寬 */
+.theme-halloween .tbl-content tbody tr[data-pumpkin]::before {
+    left: calc(var(--pk-x) - var(--pk-size) * 0.5);
+    width: calc(var(--pk-size) * 2);
+    height: calc(var(--pk-size) * 2);
+    top: calc(var(--pk-size) * -1.15);
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(255, 196, 92, 0.45), rgba(255, 140, 40, 0.12) 45%, transparent 70%);
+    animation: candle-flicker 3.2s linear infinite;
+    animation-delay: var(--pk-delay);
+}
+
+/* 混搭配色：標題那顆維持亮橘當萬聖節識別，卡片上的換成陰森色（data-pumpkin 值由 halloween.js 決定） */
+.theme-halloween .tbl-content tbody tr[data-pumpkin="rotten"]::after { background-image: var(--pumpkin-rotten); }
+.theme-halloween .tbl-content tbody tr[data-pumpkin="black"]::after  { background-image: var(--pumpkin-black); }
+.theme-halloween .tbl-content tbody tr[data-pumpkin="purple"]::after { background-image: var(--pumpkin-purple); }
+.theme-halloween .tbl-content tbody tr[data-pumpkin="rotten"]::before {
+    background: radial-gradient(circle, rgba(255, 80, 40, 0.45), rgba(180, 20, 10, 0.12) 45%, transparent 70%);
+}
+.theme-halloween .tbl-content tbody tr[data-pumpkin="black"]::before {
+    background: radial-gradient(circle, rgba(156, 255, 87, 0.4), rgba(40, 180, 40, 0.12) 45%, transparent 70%);
+}
+.theme-halloween .tbl-content tbody tr[data-pumpkin="purple"]::before {
+    background: radial-gradient(circle, rgba(126, 249, 255, 0.4), rgba(40, 140, 255, 0.12) 45%, transparent 70%);
+}
+
+/* ---- 蜘蛛網（halloween.js 建立，只有網、沒有蜘蛛） ----
+   web-corner.svg 以左上角為錨點，翻轉用於其他角落 */
+
+/* 卡片角落的小網
+   網的錨點是直角尖角，卡片卻是圓角：圖片套上與卡片相同的圓角，凸出圓角外的蛛絲會被裁掉、
+   收在卡片圓弧邊上。右上／右下角是翻轉（scaleX / scale）同一張圖，圓角會跟著轉到對應的角，
+   所以三個角落都只設 border-top-left-radius */
+.tbl-content tbody tr .card-web {
+    position: absolute;
+    height: auto;
+    border-top-left-radius: var(--radius);
+    opacity: 0.5;
+    pointer-events: none;
+    z-index: 1;
+    filter: drop-shadow(0 0 2px rgba(192, 132, 252, 0.7));
+}
+
+.tbl-content tbody tr .card-web-tl { left: 0;  top: 0; }
+.tbl-content tbody tr .card-web-tr { right: 0; top: 0;    transform: scaleX(-1); }
+.tbl-content tbody tr .card-web-br { right: 0; bottom: 0; transform: scale(-1, -1); }
+
+/* ---- 詭異藤蔓（halloween.js 建立；圖由 assets/halloween/gen_vine.py 產生） ----
+   vine-corner.svg 以左下角為錨點：圖內 (16, 底-16) 對齊卡片角落，所以往外推 16px；右下角水平翻轉。
+   發光用靜態 drop-shadow，不做動畫 */
+.tbl-content tbody tr .card-vine {
+    position: absolute;
+    bottom: -16px;
+    height: auto;
+    pointer-events: none;
+    z-index: 2;
+    filter: drop-shadow(0 0 3px rgba(156, 255, 87, 0.35));
+}
+.tbl-content tbody tr .card-vine-bl { left: -16px; }
+.tbl-content tbody tr .card-vine-br { right: -16px; transform: scaleX(-1); }
+
+/* ---- 5. 空狀態：南瓜燈 + Happy Halloween ---- */
+.theme-halloween #empty-state-cyber {
+    flex-direction: column;
+    gap: 28px;
+}
+
+.theme-halloween #empty-state-cyber .empty-state-img {
+    display: none;
+}
+
+.theme-halloween #empty-state-cyber::before {
+    content: "";
+    width: 280px;
+    height: 258px;
+    background: var(--pumpkin) center / contain no-repeat;
+    filter: drop-shadow(0 0 40px rgba(255, 170, 60, 0.45));
+}
+
+.theme-halloween #empty-state-cyber::after {
+    content: "今日會議已結束\A Happy Halloween";
+    white-space: pre;
+    text-align: center;
+    font-size: 40px;
+    font-weight: 700;
+    line-height: 1.5;
+    letter-spacing: 0.08em;
+    background: linear-gradient(135deg, #ffd7a8, #fb923c, #c084fc);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .halloween-bat { display: none; }
+    .halloween-fog, .halloween-moon-halo, .theme-halloween .tbl-title::after,
+    .theme-halloween .tbl-content tbody tr::before { animation: none; }
+}

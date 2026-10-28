@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 64">
+  <g class="bat-wing bat-wing-l">
+    <path d="M54 30 C42 16 22 10 4 18 C12 22 14 30 12 37 C20 31 26 33 30 40 C34 32 42 32 46 40 C48 34 52 34 54 38 Z" fill="#5b4380"/>
+  </g>
+  <g class="bat-wing bat-wing-r">
+    <path d="M66 30 C78 16 98 10 116 18 C108 22 106 30 108 37 C100 31 94 33 90 40 C86 32 78 32 74 40 C72 34 68 34 66 38 Z" fill="#5b4380"/>
+  </g>
+  <path d="M53 16 L55 6 L58 13 L62 13 L65 6 L67 16 Z" fill="#6b5290"/>
+  <ellipse cx="60" cy="34" rx="8" ry="13" fill="#6b5290"/>
+  <circle cx="60" cy="20" r="7.5" fill="#6b5290"/>
+  <circle cx="57" cy="19" r="1.8" fill="#ffb347"/>
+  <circle cx="63" cy="19" r="1.8" fill="#ffb347"/>
+</svg>

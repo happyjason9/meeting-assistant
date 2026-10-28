@@ -30,9 +30,11 @@
                 "https://meeting.cdc.gov.tw/*"
             ],
             "css": [
-                "style.css"
+                "style.css",
+                "halloween.css"
             ],
             "js": [
+                "halloween.js",
                 "redesign.js"
             ]
         }
@@ -42,7 +44,8 @@
             "resources": [
                 "assets/font/Iansui-Regular.ttf",
                 "assets/icons/icon-svg/*.svg",
-                "assets/photos/*.png"
+                "assets/photos/*.png",
+                "assets/halloween/*.svg"
             ],
             "matches": ["https://meeting.cdc.gov.tw/*"]
         }
