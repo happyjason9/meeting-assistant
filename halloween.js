@@ -87,7 +87,7 @@
     // 約三成的卡片角落結一張小網。跟南瓜一樣依會議名稱決定，但用另一組亂數，兩者分佈互不相關。
     // 網加在列的最後面、絕對定位不佔格：不影響 td:nth-child 欄位索引（翻譯、搜尋都靠它）。
     // 左上角靠近會議時間文字，機率較低、網也較小
-    const WEB_CHANCE = 0.3;
+    const WEB_CHANCE = 0.4;
     const WEB_CORNERS = [['tr', 0.45, [64, 100]], ['br', 0.35, [64, 100]], ['tl', 0.2, [52, 70]]];
 
     document.querySelectorAll('.tbl-content tbody tr').forEach(function (row) {
@@ -108,7 +108,7 @@
 
     // ---- 詭異藤蔓：約兩成卡片，從側邊爬下、繞過下方圓角、沿下緣蔓延 ----
     // 跟蜘蛛網一樣加在列的最後面、絕對定位不佔格。右下角已有網的卡片，藤蔓改爬左下角。
-    const VINE_CHANCE = 0.22;
+    const VINE_CHANCE = 0.3;
     const VINE_WIDTH = [300, 440];         // px（圖的比例固定，高度跟著縮放）
 
     document.querySelectorAll('.tbl-content tbody tr').forEach(function (row) {
